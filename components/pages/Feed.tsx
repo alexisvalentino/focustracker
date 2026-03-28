@@ -1,6 +1,3 @@
-import Image from 'next/image';
-import Card from '../ui/Card';
-
 import {
   IonPage,
   IonHeader,
@@ -14,76 +11,27 @@ import {
 } from '@ionic/react';
 import Notifications from './Notifications';
 import { useState } from 'react';
-import { notificationsOutline } from 'ionicons/icons';
-import { selectHomeItems } from '../../store/selectors';
-import Store from '../../store';
+import { notificationsOutline, calendarOutline } from 'ionicons/icons';
+import { useHistory } from 'react-router-dom';
 
-type FeedCardProps = {
-  title: string;
-  type: string;
-  text: string;
-  author: string;
-  authorAvatar: string;
-  image: string;
-};
-
-const FeedCard = ({
-  title,
-  type,
-  text,
-  author,
-  authorAvatar,
-  image,
-}: FeedCardProps) => (
-  <Card className="my-4 mx-auto">
-    {image ? (
-      <div className="h-32 w-full relative">
-        <Image
-          className="rounded-t-xl object-cover min-w-full min-h-full max-w-full max-h-full"
-          src={image}
-          alt=""
-          fill
-        />
-      </div>
-    ) : null}
-    <div className="px-4 py-4 bg-white rounded-b-xl dark:bg-gray-900">
-      <h4 className="font-bold py-0 text-s text-gray-400 dark:text-gray-500 uppercase">
-        {type}
-      </h4>
-      <h2 className="font-bold text-2xl text-gray-800 dark:text-gray-100">
-        {title}
-      </h2>
-      <p className="sm:text-sm text-s text-gray-500 mr-1 my-3 dark:text-gray-400">
-        {text}
-      </p>
-      <div className="flex items-center space-x-4">
-        {authorAvatar ? (
-          <div className="w-10 h-10 relative">
-            <Image
-              src={authorAvatar}
-              className="rounded-full object-cover min-w-full min-h-full max-w-full max-h-full"
-              alt=""
-              fill
-            />
-          </div>
-        ) : null}
-        <h3 className="text-gray-500 dark:text-gray-200 m-l-8 text-sm font-medium">
-          {author}
-        </h3>
-      </div>
-    </div>
-  </Card>
-);
+import { BookingStore } from '../../store/BookingStore';
 
 const Feed = () => {
-  const homeItems = Store.useState(selectHomeItems);
   const [showNotifications, setShowNotifications] = useState(false);
+  const history = useHistory();
+
+  const handleBookNow = () => {
+    BookingStore.update(s => {
+      s.step = 2;
+    });
+    history.push('/booking-flow');
+  };
 
   return (
     <IonPage>
       <IonHeader>
         <IonToolbar>
-          <IonTitle>Feed</IonTitle>
+          <IonTitle>TrustMop</IonTitle>
           <IonButtons slot="start">
             <IonMenuButton />
           </IonButtons>
@@ -97,16 +45,24 @@ const Feed = () => {
       <IonContent className="ion-padding" fullscreen>
         <IonHeader collapse="condense">
           <IonToolbar>
-            <IonTitle size="large">Feed</IonTitle>
+            <IonTitle size="large">TrustMop</IonTitle>
           </IonToolbar>
         </IonHeader>
+        
         <Notifications
           open={showNotifications}
           onDidDismiss={() => setShowNotifications(false)}
         />
-        {homeItems.map((i, index) => (
-          <FeedCard {...i} key={index} />
-        ))}
+
+        <div className="flex flex-col items-center justify-center h-full">
+          <button 
+            onClick={handleBookNow}
+            className="w-full max-w-xs bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center space-x-3 shadow-lg transition-all active:scale-95"
+          >
+            <IonIcon icon={calendarOutline} className="text-2xl" />
+            <span className="text-lg">Book Now</span>
+          </button>
+        </div>
       </IonContent>
     </IonPage>
   );

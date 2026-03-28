@@ -7,41 +7,43 @@ import {
   IonIcon,
   IonLabel,
 } from '@ionic/react';
-import { cog, flash, list } from 'ionicons/icons';
+import { home, calendar, chatbubble, person } from 'ionicons/icons';
 
 import Home from './Feed';
-import Lists from './Lists';
-import ListDetail from './ListDetail';
-import Settings from './Settings';
+import Bookings from './Lists';
+import Support from './Settings'; // Placeholder for Support
+import Profile from './Settings'; // Placeholder for Profile
+import BookingFlow from './BookingFlow';
 
 const Tabs = () => {
   return (
     <IonTabs>
       <IonRouterOutlet>
         <Switch>
-          <Route path="/feed" render={() => <Home />} exact={true} />
-          <Route path="/lists" render={() => <Lists />} exact={true} />
-          <Route
-            path="/lists/:listId"
-            render={() => <ListDetail />}
-            exact={true}
-          />
-          <Route path="/settings" render={() => <Settings />} exact={true} />
-          <Route path="" render={() => <Redirect to="/feed" />} exact={true} />
+          <Route path="/home" render={() => <Home />} exact={true} />
+          <Route path="/bookings" render={() => <Bookings />} exact={true} />
+          <Route path="/support" render={() => <Support />} exact={true} />
+          <Route path="/profile" render={() => <Profile />} exact={true} />
+          <Route path="/booking-flow" render={() => <BookingFlow />} exact={true} />
+          <Route path="" render={() => <Redirect to="/home" />} exact={true} />
         </Switch>
       </IonRouterOutlet>
       <IonTabBar slot="bottom">
-        <IonTabButton tab="tab1" href="/feed">
-          <IonIcon icon={flash} />
-          <IonLabel>Feed</IonLabel>
+        <IonTabButton tab="home" href="/home">
+          <IonIcon icon={home} />
+          <IonLabel>HOME</IonLabel>
         </IonTabButton>
-        <IonTabButton tab="tab2" href="/lists">
-          <IonIcon icon={list} />
-          <IonLabel>Lists</IonLabel>
+        <IonTabButton tab="bookings" href="/bookings">
+          <IonIcon icon={calendar} />
+          <IonLabel>BOOKINGS</IonLabel>
         </IonTabButton>
-        <IonTabButton tab="tab3" href="/settings">
-          <IonIcon icon={cog} />
-          <IonLabel>Settings</IonLabel>
+        <IonTabButton tab="support" href="/support">
+          <IonIcon icon={chatbubble} />
+          <IonLabel>SUPPORT</IonLabel>
+        </IonTabButton>
+        <IonTabButton tab="profile" href="/profile">
+          <IonIcon icon={person} />
+          <IonLabel>PROFILE</IonLabel>
         </IonTabButton>
       </IonTabBar>
     </IonTabs>
