@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "com.alexisvalentino.crossplatform"
+    namespace "com.alexisvalentino.focustracker"
     compileSdkVersion rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.alexisvalentino.crossplatform"
+        applicationId "com.alexisvalentino.focustracker"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

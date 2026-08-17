@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">CrossPlatform</string>
-    <string name="title_activity_main">CrossPlatform</string>
-    <string name="package_name">com.alexisvalentino.crossplatform</string>
-    <string name="custom_url_scheme">com.alexisvalentino.crossplatform</string>
+    <string name="app_name">Focus Tracker</string>
+    <string name="title_activity_main">Focus Tracker</string>
+    <string name="package_name">com.alexisvalentino.focustracker</string>
+    <string name="custom_url_scheme">com.alexisvalentino.focustracker</string>
 </resources>
