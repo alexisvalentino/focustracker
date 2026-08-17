@@ -1,6 +1,6 @@
 {
-	"appId": "com.alexisvalentino.crossplatform",
-	"appName": "CrossPlatform",
+	"appId": "com.alexisvalentino.focustracker",
+	"appName": "Focus Tracker",
 	"bundledWebRuntime": false,
 	"npmClient": "npm",
 	"webDir": "out",

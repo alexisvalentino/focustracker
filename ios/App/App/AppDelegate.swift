@@ -7,7 +7,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Keep the screen on while the app is in the foreground so the focus
+        // timer never sleeps mid-session. No permission required on iOS.
+        application.isIdleTimerDisabled = true
         return true
     }
 
