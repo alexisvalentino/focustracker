@@ -33,3 +33,8 @@ tsconfig.tsbuildinfo
 
 # vercel
 .vercel
+
+# local agent tooling
+/.agents
+/.freebuff
+/.skills
