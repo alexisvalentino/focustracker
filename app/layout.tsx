@@ -22,8 +22,8 @@ import '../styles/global.css';
 import '../styles/variables.css';
 
 export const metadata: Metadata = {
-  title: 'Create Next App',
-  description: 'CrossPlatform App',
+  title: 'Focus Tracker',
+  description: 'A productivity focus timer that resets to zero if you touch your phone. Built with Next.js, Ionic, and Capacitor.',
 };
 
 export const viewport: Viewport = {
