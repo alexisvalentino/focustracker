@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { Roboto_Flex } from 'next/font/google';
 import Script from 'next/script';
 
 import 'tailwindcss/tailwind.css';
@@ -30,7 +31,19 @@ export const viewport: Viewport = {
   initialScale: 1,
   width: 'device-width',
   viewportFit: 'cover',
+  // Match the browser chrome (address bar) to the app's blue branding.
+  themeColor: '#0EA5E9',
 };
+
+// Self-hosted Roboto Flex — the variable app-standard typeface, tight at small
+// sizes. Variable weight covers every weight the UI uses (base + semibold +
+// bold + black) without faux-bold synthesis.
+const roboto = Roboto_Flex({
+  subsets: ['latin'],
+  weight: 'variable',
+  variable: '--font-roboto',
+  display: 'swap',
+});
 
 export default function RootLayout({
   children,
@@ -38,7 +51,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={roboto.variable}>
       <body>{children}</body>
       <Script
         type="module"

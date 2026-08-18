@@ -38,3 +38,8 @@ tsconfig.tsbuildinfo
 /.agents
 /.freebuff
 /.skills
+
+# release keystore and credentials (NEVER commit these)
+*.jks
+*.keystore
+keystore.properties

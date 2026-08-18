@@ -6,18 +6,46 @@ module.exports = {
   darkMode: 'class',
   theme: {
     extend: {
+      fontFamily: {
+        // Roboto (self-hosted via next/font) drives the app's type — tight,
+        // app-standard letterforms at small sizes.
+        sans: [
+          'var(--font-roboto)',
+          'Roboto',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'Segoe UI',
+          'Helvetica',
+          'Arial',
+          'sans-serif',
+        ],
+      },
       colors: {
+        // Variable-driven palettes so the app themes can swap them at runtime
+        // (values live in styles/global.css `:root` + `[data-theme]` blocks).
         brand: {
-          50: '#EBF3FF',
-          100: '#D6E7FF',
-          200: '#ADCFFF',
-          300: '#85B7FF',
-          400: '#5C9EFF',
-          500: '#3386FF',
-          600: '#1A6DFF',
-          700: '#0052DB',
-          800: '#003FB8',
-          900: '#002C94',
+          50: 'rgb(var(--brand-50) / <alpha-value>)',
+          100: 'rgb(var(--brand-100) / <alpha-value>)',
+          200: 'rgb(var(--brand-200) / <alpha-value>)',
+          300: 'rgb(var(--brand-300) / <alpha-value>)',
+          400: 'rgb(var(--brand-400) / <alpha-value>)',
+          500: 'rgb(var(--brand-500) / <alpha-value>)',
+          600: 'rgb(var(--brand-600) / <alpha-value>)',
+          700: 'rgb(var(--brand-700) / <alpha-value>)',
+          800: 'rgb(var(--brand-800) / <alpha-value>)',
+          900: 'rgb(var(--brand-900) / <alpha-value>)',
+        },
+        sky: {
+          50: 'rgb(var(--sky-50) / <alpha-value>)',
+          100: 'rgb(var(--sky-100) / <alpha-value>)',
+          200: 'rgb(var(--sky-200) / <alpha-value>)',
+          300: 'rgb(var(--sky-300) / <alpha-value>)',
+          400: 'rgb(var(--sky-400) / <alpha-value>)',
+          500: 'rgb(var(--sky-500) / <alpha-value>)',
+          600: 'rgb(var(--sky-600) / <alpha-value>)',
+          700: 'rgb(var(--sky-700) / <alpha-value>)',
+          800: 'rgb(var(--sky-800) / <alpha-value>)',
+          900: 'rgb(var(--sky-900) / <alpha-value>)',
         },
       },
       animation: {
