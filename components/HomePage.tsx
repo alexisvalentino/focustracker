@@ -24,6 +24,7 @@ interface HomePageProps {
   forestFocusMinutes: number;
   forestDonated: number;
   weekend: boolean;
+  active?: boolean;
   onRepair: () => void;
   onBuyFreeze: () => void;
   onDonate: () => void;
@@ -46,6 +47,7 @@ const HomePage = ({
   forestFocusMinutes,
   forestDonated,
   weekend,
+  active = true,
   onRepair,
   onBuyFreeze,
   onDonate,
@@ -69,7 +71,7 @@ const HomePage = ({
         </p>
       </div>
 
-      <EventBannerRow streak={streak} weekend={weekend} />
+      <EventBannerRow streak={streak} weekend={weekend} active={active} />
 
       <MascotCard streak={streak} mascot={mascot} accessory={accessory} />
 
@@ -93,6 +95,7 @@ const HomePage = ({
         totalSessions={totalSessions}
         forestFocusMinutes={forestFocusMinutes}
         forestDonated={forestDonated}
+        active={active}
         onDonate={onDonate}
       />
 

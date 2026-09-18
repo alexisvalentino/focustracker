@@ -65,9 +65,11 @@ const formatCountdown = (ms: number): string => {
 const EventBannerRow = ({
   streak = 0,
   weekend = false,
+  active = true,
 }: {
   streak?: number;
   weekend?: boolean;
+  active?: boolean;
 }) => {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const pausedRef = useRef(false);
@@ -77,9 +79,10 @@ const EventBannerRow = ({
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
+    if (!active) return;
     const id = window.setInterval(() => setNowMs(Date.now()), 30000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [active]);
 
   const goTo = (i: number) => {
     const el = scrollerRef.current;
@@ -108,12 +111,14 @@ const EventBannerRow = ({
 
   // Gentle auto-advance loop.
   useEffect(() => {
+    if (!active) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const id = window.setInterval(() => {
       if (pausedRef.current) return;
       goTo(index + 1 >= BANNERS.length ? 0 : index + 1);
     }, 4000);
     return () => window.clearInterval(id);
-  }, [index]);
+  }, [active, index]);
 
   useEffect(
     () => () => window.clearTimeout(resumeTimerRef.current),
@@ -127,6 +132,7 @@ const EventBannerRow = ({
         onScroll={onScroll}
         onPointerDown={pause}
         onPointerUp={resumeSoon}
+        onPointerCancel={resumeSoon}
         onPointerLeave={resumeSoon}
         className="no-scrollbar flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden rounded-2xl scroll-smooth"
       >

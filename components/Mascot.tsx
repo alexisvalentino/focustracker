@@ -4,14 +4,53 @@ import type { AccessoryId, MascotId } from '../lib/gameState';
 
 type Mood = 'idle' | 'running' | 'happy' | 'sad';
 
-const CONFETTI_COLORS = ['#38BDF8', '#F472B6', '#FBBF24', '#34D399', '#A78BFA'];
+const CONFETTI_COLORS = [
+  '#38BDF8', // Sky blue
+  '#F472B6', // Bright pink
+  '#FBBF24', // Amber gold
+  '#34D399', // Emerald
+  '#A78BFA', // Purple
+  '#FB7185', // Rose
+  '#60A5FA', // Blue
+  '#F59E0B', // Warm gold
+];
 
-const CONFETTI = Array.from({ length: 14 }, (_, i) => ({
-  left: `${6 + ((i * 37) % 88)}%`,
-  delay: `${(i % 7) * 0.12}s`,
-  duration: `${1.1 + (i % 5) * 0.18}s`,
-  color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-}));
+const CONFETTI = Array.from({ length: 36 }, (_, i) => {
+  // Golden ratio distribution across 360 degrees for natural scatter
+  const angle = (i * 137.5 * Math.PI) / 180;
+  // Varied blast distance
+  const dist = 50 + ((i * 47) % 95); // 50px to 144px
+  const bx = Math.round(Math.cos(angle) * dist);
+  // Bias upward slightly so particles blast up and out before falling
+  const by = Math.round(Math.sin(angle) * dist - 22);
+  // Gravity drop during the second half of trajectory
+  const gy = 48 + ((i * 31) % 55); // 48px to 102px
+
+  const isCircle = i % 4 === 0;
+  const isSquare = i % 4 === 1;
+  const w = isCircle ? 7 : isSquare ? 6 : 5 + (i % 3) * 2;
+  const h = isCircle ? 7 : isSquare ? 6 : 10 + (i % 3) * 3;
+
+  const spinDir = i % 2 === 0 ? 1 : -1;
+  const r1 = `${spinDir * (70 + ((i * 29) % 80))}deg`;
+  const r2 = `${spinDir * (220 + ((i * 43) % 160))}deg`;
+  const r3 = `${spinDir * (480 + ((i * 61) % 360))}deg`;
+
+  return {
+    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    w,
+    h,
+    borderRadius: isCircle ? '50%' : isSquare ? '2px' : '3px',
+    delay: `${((i % 7) * 0.018).toFixed(3)}s`,
+    duration: `${(1.15 + (i % 5) * 0.09).toFixed(2)}s`,
+    bx: `${bx}px`,
+    by: `${by}px`,
+    gy: `${gy}px`,
+    r1,
+    r2,
+    r3,
+  };
+});
 
 // Species-specific head art. The eyes, mouth, blush, tears and eyebrows are
 // shared below, so every animal gets the same moods with the same positions.
@@ -236,19 +275,37 @@ const Mascot = ({
 
   return (
     <div className={`relative ${className ?? ''}`}>
-      {/* Confetti burst behind the happy mascot */}
+      {/* Explosive celebratory confetti burst */}
       {happy && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-full overflow-visible">
+        <div
+          className="pointer-events-none absolute inset-0 z-0 overflow-visible"
+          aria-hidden="true"
+        >
+          <span className="mascot-confetti-shockwave" />
+          <span className="mascot-confetti-shockwave-secondary" />
           {CONFETTI.map((c, i) => (
             <span
               key={i}
               className="mascot-confetti"
-              style={{
-                left: c.left,
-                background: c.color,
-                animationDelay: c.delay,
-                animationDuration: c.duration,
-              }}
+              style={
+                {
+                  position: 'absolute',
+                  left: '50%',
+                  top: '50%',
+                  width: `${c.w}px`,
+                  height: `${c.h}px`,
+                  borderRadius: c.borderRadius,
+                  background: c.color,
+                  animationDelay: c.delay,
+                  animationDuration: c.duration,
+                  '--bx': c.bx,
+                  '--by': c.by,
+                  '--gy': c.gy,
+                  '--r1': c.r1,
+                  '--r2': c.r2,
+                  '--r3': c.r3,
+                } as React.CSSProperties
+              }
             />
           ))}
         </div>
@@ -396,20 +453,79 @@ const Mascot = ({
           100% { transform: translateY(24px) scale(0.6); opacity: 0; }
         }
 
+        .mascot-confetti-shockwave {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          border: 3px solid rgba(251, 191, 36, 0.9);
+          box-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+          pointer-events: none;
+          animation: mascotShockwave 0.5s cubic-bezier(0.1, 0.8, 0.25, 1) forwards;
+        }
+
+        .mascot-confetti-shockwave-secondary {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          border: 2px solid rgba(56, 189, 248, 0.8);
+          pointer-events: none;
+          animation: mascotShockwave 0.42s 0.04s cubic-bezier(0.1, 0.8, 0.25, 1) forwards;
+        }
+
+        @keyframes mascotShockwave {
+          0% {
+            transform: translate(-50%, -50%) scale(0.1);
+            opacity: 1;
+          }
+          60% {
+            opacity: 0.8;
+          }
+          100% {
+            transform: translate(-50%, -50%) scale(5);
+            opacity: 0;
+            border-width: 1px;
+          }
+        }
+
         .mascot-confetti {
           position: absolute;
-          top: 0;
-          width: 8px;
-          height: 12px;
-          border-radius: 2px;
+          left: 50%;
+          top: 50%;
           opacity: 0;
-          animation-name: mascotConfetti;
-          animation-timing-function: linear;
-          animation-iteration-count: infinite;
+          pointer-events: none;
+          animation-name: mascotConfettiExplosion;
+          animation-timing-function: cubic-bezier(0.14, 0.82, 0.3, 1);
+          animation-iteration-count: 1;
+          animation-fill-mode: forwards;
         }
-        @keyframes mascotConfetti {
-          0% { transform: translateY(-6px) rotate(0deg); opacity: 1; }
-          100% { transform: translateY(140px) rotate(360deg); opacity: 0.7; }
+
+        @keyframes mascotConfettiExplosion {
+          0% {
+            transform: translate(-50%, -50%) translate3d(0, 0, 0) scale(0) rotate(0deg);
+            opacity: 0;
+          }
+          5% {
+            opacity: 1;
+            transform: translate(-50%, -50%) translate3d(calc(var(--bx) * 0.35), calc(var(--by) * 0.35), 0) scale(1.3) rotate(var(--r1));
+          }
+          32% {
+            opacity: 1;
+            transform: translate(-50%, -50%) translate3d(var(--bx), var(--by), 0) scale(1) rotate(var(--r2));
+          }
+          68% {
+            opacity: 1;
+            transform: translate(-50%, -50%) translate3d(calc(var(--bx) * 1.06), calc(var(--by) + var(--gy) * 0.5), 0) scale(0.9) rotate(calc(var(--r2) + 90deg));
+          }
+          100% {
+            opacity: 0;
+            transform: translate(-50%, -50%) translate3d(calc(var(--bx) * 1.12), calc(var(--by) + var(--gy)), 0) scale(0.4) rotate(var(--r3));
+          }
         }
       `}</style>
     </div>

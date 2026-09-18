@@ -14,7 +14,13 @@ export const syncStatusBar = (): void => {
   const root = document.querySelector<HTMLElement>('[data-theme]');
   if (!root) return;
   const sky = getComputedStyle(root).getPropertyValue('--sky-100').trim();
-  const color = sky ? `rgb(${sky})` : '#E0F2FE';
+  const channels = sky.split(/\s+/).map(Number);
+  const color =
+    channels.length === 3 && channels.every(Number.isFinite)
+      ? `#${channels
+          .map(channel => Math.max(0, Math.min(255, channel)).toString(16).padStart(2, '0'))
+          .join('')}`
+      : '#E0F2FE';
   // setBackgroundColor is Android-only; on iOS it rejects and is ignored.
   void StatusBar.setBackgroundColor({ color }).catch(() => {});
   void StatusBar.setStyle({ style: Style.Dark }).catch(() => {});

@@ -17,7 +17,7 @@ const TabBar = ({
   onChange: (key: TabKey) => void;
   disabled?: boolean;
 }) => (
-  <div className="flex shrink-0 items-center justify-around border-t border-slate-200/70 bg-white/90 px-2 pt-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur-sm">      {TABS.map(t => {
+  <nav aria-label="Primary" className="flex shrink-0 items-center justify-around border-t border-slate-200/70 bg-white/90 px-2 pt-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur-sm">      {TABS.map(t => {
         const isActive = active === t.key;
         return (
           <button
@@ -48,7 +48,7 @@ const TabBar = ({
         </button>
       );
     })}
-  </div>
+  </nav>
 );
 
 export default TabBar;

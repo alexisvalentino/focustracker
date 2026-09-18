@@ -19,9 +19,8 @@ const ok = (cond, label) => {
 const base = () => gs.defaultGameState();
 // A Saturday at 10:00 (2026-08-22 is a Saturday)
 const SAT = new Date(2026, 7, 22, 10, 0, 0);
-// Session tests use the real "today" so the day-rollover (normalizeForToday)
-// does not reset per-day counters.
-const NOW = new Date();
+// Fixed weekday keeps reward tests deterministic on weekends and in CI.
+const NOW = new Date(2026, 7, 18, 10, 0, 0);
 
 console.log('== 1. Session rewards ==');
 {
@@ -62,6 +61,7 @@ console.log('== 3. Daily goal claim ==');
   let s = base();
   s.completedToday = 3;
   s.lastFocusDate = gs.todayKey();
+  s.dailyProgressDate = gs.todayKey();
   const c1 = gs.claimDailyGoal(s);
   ok(c1.reward === 50, 'daily goal reward 50');
   ok(c1.state.coins === 50 && c1.state.dailyGoalClaimed, 'coins +50, claimed flag');
@@ -70,18 +70,22 @@ console.log('== 3. Daily goal claim ==');
   let s2 = base();
   s2.completedToday = 2;
   s2.lastFocusDate = gs.todayKey();
+  s2.dailyProgressDate = gs.todayKey();
   ok(gs.claimDailyGoal(s2).reward === 0, 'cannot claim before 3 sessions');
 }
 
 console.log('== 4. Check-in strip D1-D7 + jackpot + escalation ==');
 {
-  // Walk the full cycle: streak 1..7, claim each day
+  // Walk the full cycle: streak 1..7, claim each day (one per day)
   let s = base();
   let day = 1;
   const dayNames = [10, 20, 30, 50, 80, 120, 200];
   let running = 0;
   for (const expected of dayNames) {
     s.currentStreak = day;
+    s.lastFocusDate = gs.todayKey();
+    // Simulate a new day: clear lastCheckinDate so the one-per-day cap resets
+    s.lastCheckinDate = null;
     const c = gs.claimDayReward(s, day);
     ok(c.reward === expected, `D${day} reward = ${expected} (got ${c.reward})`);
     running += expected;
@@ -92,29 +96,99 @@ console.log('== 4. Check-in strip D1-D7 + jackpot + escalation ==');
   ok(s.jackpots === 1, 'jackpot count 1 after D7');
   ok(s.claimedDays.length === 0, 'cycle resets after D7');
   ok(s.coins === 510, 'full cycle total 510 (10+20+30+50+80+120+200)');
+  ok(s.lastCheckinDate === gs.todayKey(), 'lastCheckinDate set after claim');
+
+  // Cannot claim a second time on the same day
+  const sameDayBlock = gs.claimDayReward(s, 1);
+  ok(sameDayBlock.reward === 0, 'cannot claim twice same day (one-per-day cap)');
 
   // Cannot claim beyond streak / repeat / out of range
   let s2 = base();
   s2.currentStreak = 1;
+  s2.lastFocusDate = gs.todayKey();
   ok(gs.claimDayReward(s2, 2).reward === 0, 'cannot claim D2 at streak 1');
   ok(gs.claimDayReward(s2, 8).reward === 0, 'cannot claim D8');
   ok(gs.claimDayReward(s2, 0).reward === 0, 'cannot claim D0');
   const d1 = gs.claimDayReward(s2, 1);
   ok(gs.claimDayReward(d1.state, 1).reward === 0, 'cannot re-claim D1');
 
+  // === Edge case: infinite-loop exploit (the original bug) ===
+  // After D7 claimed, claimedDays resets to [] but lastCheckinDate blocks
+  // same-day re-claiming of D1-D7 in a new cycle.
+  let exploit = base();
+  exploit.currentStreak = 7;
+  exploit.lastFocusDate = gs.todayKey();
+  exploit.claimedDays = [1, 2, 3, 4, 5, 6];
+  const d7 = gs.claimDayReward(exploit, 7);
+  ok(d7.reward > 0, 'D7 jackpot claimed');
+  ok(d7.state.jackpots === 1, 'jackpot count 1');
+  ok(d7.state.claimedDays.length === 0, 'claimedDays reset after D7');
+  // Same day: try D1 of new cycle — must be blocked
+  const exploitD1 = gs.claimDayReward(d7.state, 1);
+  ok(exploitD1.reward === 0, 'cannot exploit: D1 blocked same day after D7');
+  // Same day: try D7 again — also blocked
+  const exploitD7 = gs.claimDayReward(d7.state, 7);
+  ok(exploitD7.reward === 0, 'cannot exploit: D7 blocked same day after D7');
+
+  // === Edge case: next day after D7 — new cycle starts ===
+  // Simulate a new day by clearing lastCheckinDate
+  const nextDay = { ...d7.state, lastCheckinDate: null };
+  nextDay.currentStreak = 8;
+  nextDay.lastFocusDate = gs.todayKey();
+  const newCycleD1 = gs.claimDayReward(nextDay, 1);
+  ok(newCycleD1.reward > 0, 'D1 claimable next day after D7 (new cycle)');
+  ok(newCycleD1.state.jackpots === 1, 'jackpot count still 1 after D1 of cycle 2');
+
+  // === Edge case: catch-up within cycle limited to one per day ===
+  let catchup = base();
+  catchup.currentStreak = 5;
+  catchup.lastFocusDate = gs.todayKey();
+  catchup.claimedDays = [];
+  catchup.lastCheckinDate = null;
+  const cu1 = gs.claimDayReward(catchup, 1);
+  ok(cu1.reward > 0, 'catch-up D1 claimed');
+  // Same day: try D2 — blocked by one-per-day
+  const cu2 = gs.claimDayReward(cu1.state, 2);
+  ok(cu2.reward === 0, 'catch-up D2 blocked same day (one-per-day)');
+
+  // === Edge case: old save without lastCheckinDate ===
+  let old = base();
+  old.currentStreak = 3;
+  old.lastFocusDate = gs.todayKey();
+  old.lastCheckinDate = undefined; // simulates pre-fix localStorage
+  const oldClaim = gs.claimDayReward(old, 1);
+  ok(oldClaim.reward > 0, 'old save without lastCheckinDate can claim');
+
   // Escalation: cycle 2 rewards +50%
   let s3 = base();
   s3.jackpots = 1; // one completed cycle
   s3.currentStreak = 1;
+  s3.lastFocusDate = gs.todayKey();
+  s3.lastCheckinDate = null;
   ok(gs.claimDayReward(s3, 1).reward === 15, 'cycle 2 D1 = 10 x1.5 = 15');
+  // New day for next claim
+  s3.lastCheckinDate = null;
   s3.currentStreak = 7;
+  s3.claimedDays = [1, 2, 3, 4, 5, 6];
   ok(gs.claimDayReward(s3, 7).reward === 300, 'cycle 2 D7 = 200 x1.5 = 300');
   // Escalation cap x4 (after 6 cycles)
   let s4 = base();
   s4.jackpots = 6;
   s4.currentStreak = 7;
+  s4.lastFocusDate = gs.todayKey();
+  s4.claimedDays = [1, 2, 3, 4, 5, 6];
   ok(gs.claimDayReward(s4, 7).reward === 800, 'jackpot capped at x4 = 800');
   ok(gs.checkinMultiplier(6) === 4, 'multiplier caps at 4');
+
+  // Check-ins must be sequential and require a live streak.
+  let ordered = base();
+  ordered.currentStreak = 7;
+  ordered.lastFocusDate = gs.todayKey();
+  ok(gs.claimDayReward(ordered, 7).reward === 0, 'cannot skip directly to D7');
+  const staleDate = new Date();
+  staleDate.setDate(staleDate.getDate() - 2);
+  ordered.lastFocusDate = gs.todayKey(staleDate);
+  ok(gs.claimDayReward(ordered, 1).reward === 0, 'cannot claim against an expired streak');
 }
 
 console.log('== 5. Daily bonus ==');
@@ -144,12 +218,12 @@ console.log('== 7. Streak repair ==');
   s.currentStreak = 5;
   s.lastFocusDate = gs.todayKey();
   ok(!gs.canRepairStreak(s), 'not repairable same day');
-  // build a real miss: lastFocusDate 3 days back
+  // Build a one-missed-day gap: last focus was two calendar days ago.
   const d = new Date();
-  d.setDate(d.getDate() - 3);
-  const threeDaysAgo = gs.todayKey(d);
-  s.lastFocusDate = threeDaysAgo;
-  ok(gs.canRepairStreak(s), 'repairable after 3-day miss');
+  d.setDate(d.getDate() - 2);
+  const twoDaysAgo = gs.todayKey(d);
+  s.lastFocusDate = twoDaysAgo;
+  ok(gs.canRepairStreak(s), 'repairable after one missed day');
   s.coins = 80;
   const r = gs.repairStreak(s);
   ok(r.repaired && r.state.coins === 0, 'repair costs 80');
@@ -160,9 +234,14 @@ console.log('== 7. Streak repair ==');
   // not enough coins
   let poor = base();
   poor.currentStreak = 3;
-  poor.lastFocusDate = threeDaysAgo;
+  poor.lastFocusDate = twoDaysAgo;
   poor.coins = 10;
   ok(!gs.repairStreak(poor).repaired, 'repair fails without 80 coins');
+  const oldDate = new Date();
+  oldDate.setDate(oldDate.getDate() - 3);
+  poor.lastFocusDate = gs.todayKey(oldDate);
+  poor.coins = 80;
+  ok(!gs.repairStreak(poor).repaired, 'one repair cannot erase multiple missed days');
 }
 
 console.log('== 8. Streak freeze (buy + consume) ==');
@@ -227,8 +306,10 @@ console.log('== 9. Forest: focus trees + lifecycle + donate ==');
   const d1 = gs.donateToForest(funded(), 100);
   ok(d1.treesPlanted === 1 && d1.state.trees === 1 && d1.state.treeProgress === 0, 'donate 100 -> 1 tree');
   ok(d1.state.forestDonated === 100, 'donated counter');
+  ok(d1.state.treePlantedDay.length === 1 && d1.state.treePlantedSession.length === 1, 'donated tree gets maturity metadata');
   const d2 = gs.donateToForest(funded(), 250);
   ok(d2.treesPlanted === 2 && d2.state.treeProgress === 50, 'donate 250 -> 2 trees, 50 overflow');
+  ok(d2.state.treePlantedDay.length === 2 && d2.state.treePlantedSession.length === 2, 'all donated trees get metadata');
   const d3 = gs.donateToForest(base(), 1000);
   ok(d3.donated === 0 && d3.treesPlanted === 0, 'donate with 0 coins -> nothing');
   let rich = base();
@@ -325,6 +406,9 @@ console.log('== 12. Streak edge cases (missed day resets) ==');
   const r = gs.recordSession(s, 60, new Date());
   ok(r.result.streak === 1, 'missed day without freeze resets to 1');
   ok(r.state.bestStreak === 2, 'best streak preserved');
+  s.claimedDays = [1, 2];
+  const resetCheckins = gs.recordSession(s, 60, new Date());
+  ok(resetCheckins.state.claimedDays.length === 0, 'broken streak resets check-in progress');
   // same-day second session does not bump streak
   const t = gs.todayKey();
   let s2 = base();
@@ -332,6 +416,122 @@ console.log('== 12. Streak edge cases (missed day resets) ==');
   s2.lastFocusDate = t;
   const r2 = gs.recordSession(s2, 60, new Date());
   ok(r2.result.streak === 4 && !r2.result.streakIncreased, 'same-day session keeps streak');
+}
+
+console.log('== 13. Daily rollover is independent from streak repair ==');
+{
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  let s = base();
+  s.lastFocusDate = gs.todayKey(yesterday);
+  s.dailyProgressDate = gs.todayKey(yesterday);
+  s.completedToday = 3;
+  s.dailyGoalClaimed = true;
+  const normalized = gs.normalizeForToday(s);
+  ok(normalized.completedToday === 0 && !normalized.dailyGoalClaimed, 'daily counters reset on a new day');
+  ok(normalized.lastFocusDate === s.lastFocusDate, 'daily rollover does not rewrite streak history');
+
+  normalized.currentStreak = 4;
+  normalized.coins = 80;
+  const older = new Date();
+  older.setDate(older.getDate() - 2);
+  normalized.lastFocusDate = gs.todayKey(older);
+  normalized.completedToday = 2;
+  const repaired = gs.repairStreak(normalized);
+  ok(repaired.repaired, 'streak repair succeeds for one missed day');
+  ok(repaired.state.completedToday === 2, 'streak repair does not erase current daily progress');
+}
+
+console.log('== 14. Clock rollback protection ==');
+{
+  const day1 = new Date(2026, 8, 18, 10, 0, 0);
+  const day2 = new Date(2026, 8, 19, 10, 0, 0);
+  const prior = new Date(2026, 8, 17, 10, 0, 0);
+  let s = base();
+  s.currentStreak = 2;
+  s.lastFocusDate = gs.todayKey(day1);
+  const first = gs.claimDayReward(s, 1, day1);
+  ok(first.reward > 0, 'fixed-date D1 claim succeeds');
+  ok(gs.claimDayReward(first.state, 2, prior).reward === 0, 'clock rollback cannot advance check-ins');
+  const second = gs.claimDayReward(first.state, 2, day2);
+  ok(second.reward > 0, 'next calendar day advances check-ins');
+
+  const bonus = gs.claimDailyBonus(base(), day1);
+  ok(bonus.reward > 0, 'fixed-date daily bonus succeeds');
+  ok(gs.claimDailyBonus(bonus.state, prior).reward === 0, 'clock rollback cannot repeat daily bonus');
+  ok(gs.claimDailyBonus(bonus.state, day2).reward > 0, 'daily bonus returns on a later day');
+
+  let future = base();
+  future.lastFocusDate = gs.todayKey(day2);
+  future.dailyProgressDate = gs.todayKey(day2);
+  const blocked = gs.recordSession(future, 60, day1);
+  ok(blocked.result.coinsEarned === 0 && blocked.state.totalSessions === 0, 'clock rollback cannot record sessions before saved progress');
+}
+
+console.log('== 15. Invalid transition inputs ==');
+{
+  for (const seconds of [0, -1, 1.5, NaN, Infinity, gs.MAX_SESSION_SECONDS + 1]) {
+    const result = gs.recordSession(base(), seconds, NOW);
+    ok(result.result.coinsEarned === 0 && result.state.totalSessions === 0, `invalid session rejected: ${seconds}`);
+  }
+  for (const seconds of [-1, NaN, Infinity]) {
+    const result = gs.awardFailConsolation(base(), seconds);
+    ok(result.reward === 0 && result.state.coins === 0, `invalid consolation rejected: ${seconds}`);
+  }
+  const capped = gs.awardFailConsolation(base(), 999999999);
+  ok(capped.reward === gs.MAX_SESSION_SECONDS / 30, 'consolation is capped to maximum session');
+  for (const amount of [-1, 0.5, NaN, Infinity]) {
+    const funded = Object.assign(base(), { coins: 500 });
+    const result = gs.donateToForest(funded, amount);
+    ok(result.donated === 0 && result.state.coins === 500, `invalid donation rejected: ${amount}`);
+  }
+}
+
+console.log('== 16. Malformed save recovery ==');
+{
+  const savedLocalStorage = global.localStorage;
+  const load = value => {
+    global.localStorage = { getItem: () => value, setItem: () => {} };
+    return gs.loadGameState();
+  };
+  const malformed = load(JSON.stringify({
+    coins: '100',
+    currentStreak: -4,
+    completedToday: Infinity,
+    dailyGoalClaimed: 'false',
+    claimedDays: [1, 3, 2, 2, 99],
+    trees: -2,
+    streakFreezes: 99,
+    lastFocusDate: '2026-02-30',
+    ownedMascots: ['cat', 'cat', 'invalid'],
+    ownedThemes: ['pink', 'pink', 'invalid'],
+  }));
+  ok(malformed.coins === 0 && malformed.currentStreak === 0, 'invalid numeric save fields are sanitized');
+  ok(malformed.trees === 0 && malformed.treePlantedDay.length === 0, 'invalid tree count is sanitized');
+  ok(malformed.streakFreezes === gs.STREAK_FREEZE_MAX, 'freeze count is clamped');
+  ok(malformed.lastFocusDate === null && malformed.dailyGoalClaimed === false, 'invalid dates and booleans are sanitized');
+  ok(malformed.claimedDays.join(',') === '1,2,3', 'check-in save is canonicalized to a prefix');
+  ok(malformed.ownedMascots.join(',') === 'bear,cat', 'mascot ownership is valid and deduplicated');
+  ok(malformed.ownedThemes.join(',') === 'blue,pink', 'theme ownership is valid and deduplicated');
+  ok(load('null').coins === 0 && load('[]').coins === 0, 'non-object saves recover to defaults');
+
+  const treeState = load(JSON.stringify({
+    trees: 2,
+    totalSessions: 5,
+    treePlantedDay: ['bad', 1],
+    treePlantedSession: [99, -1],
+  }));
+  ok(treeState.treePlantedDay.length === 2 && treeState.treePlantedSession.length === 2, 'invalid tree metadata is rebuilt');
+  ok(treeState.treePlantedSession.every(n => Number.isSafeInteger(n) && n >= 0), 'rebuilt tree sessions are valid');
+  global.localStorage = savedLocalStorage;
+}
+
+console.log('== 17. Calendar date arithmetic ==');
+{
+  ok(gs.daysBetween('2024-03-09', '2024-03-11') === 2, 'calendar days ignore DST-length differences');
+  ok(gs.daysBetween('2024-02-28', '2024-03-01') === 2, 'leap day is counted');
+  ok(gs.daysBetween('2026-02-30', '2026-03-01') === Infinity, 'invalid calendar date is rejected');
+  ok(gs.daysBetween('bad', '2026-03-01') === Infinity, 'malformed date is rejected');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

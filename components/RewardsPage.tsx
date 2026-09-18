@@ -5,6 +5,8 @@ import {
   DAY_REWARDS,
   checkinMultiplier,
   checkinReward,
+  todayKey,
+  daysBetween,
   type AccessoryId,
   type MascotId,
   type ThemeId,
@@ -13,7 +15,6 @@ import { useCountUp } from '../lib/useCountUp';
 import MascotShop from './MascotShop';
 import AccessoryShop from './AccessoryShop';
 import ThemeShop from './ThemeShop';
-import SupportCard from './SupportCard';
 import AchievementsCard from './AchievementsCard';
 
 interface RewardsPageProps {
@@ -34,6 +35,8 @@ interface RewardsPageProps {
   trees: number;
   jackpots: number;
   totalSessions: number;
+  lastFocusDate: string | null;
+  lastCheckinDate: string | null;
   bubbleVisible: boolean;
   bubbleValue: number;
   onCollectBubble: () => void;
@@ -69,6 +72,8 @@ const RewardsPage = ({
   trees,
   jackpots,
   totalSessions,
+  lastFocusDate,
+  lastCheckinDate,
   bubbleVisible,
   bubbleValue,
   onCollectBubble,
@@ -183,14 +188,14 @@ const RewardsPage = ({
 
         {/* Day 1-7 check-in strip */}
         <div className="mt-3 w-full rounded-2xl border border-slate-200/70 bg-white p-4 text-left shadow-sm">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <span className="text-base leading-none">📅</span>
               <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">
                 Check-in Streak
               </p>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <span className="whitespace-nowrap rounded-full bg-brand-50 px-2 py-0.5 text-[9px] font-black tracking-wide text-brand-600">
                 Cycle {jackpots + 1} · ×{formatMult(checkinMultiplier(jackpots))}
               </span>
@@ -204,7 +209,22 @@ const RewardsPage = ({
               const day = i + 1;
               const escalated = checkinReward(day, jackpots);
               const claimed = claimedDays.includes(day);
-              const claimable = !claimed && currentStreak >= day;
+              const todayAlreadyClaimed = lastCheckinDate === todayKey();
+              const nextDay = claimedDays.length + 1;
+              const focusAge = lastFocusDate
+                ? daysBetween(lastFocusDate, todayKey())
+                : Infinity;
+              const streakIsCurrent = focusAge === 0 || focusAge === 1;
+              const checkinDateValid =
+                lastCheckinDate === null ||
+                daysBetween(lastCheckinDate, todayKey()) > 0;
+              const claimable =
+                day === nextDay &&
+                !claimed &&
+                currentStreak >= day &&
+                streakIsCurrent &&
+                checkinDateValid &&
+                !todayAlreadyClaimed;
               const isJackpot = day === DAY_REWARDS.length;
               return (
                 <button
@@ -286,8 +306,6 @@ const RewardsPage = ({
         onBuy={onBuyTheme}
         onEquip={onEquipTheme}
       />
-
-      <SupportCard />
     </div>
   </div>
 );

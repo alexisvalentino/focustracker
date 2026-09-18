@@ -2,6 +2,8 @@
 // Day 1-7 check-in strip. Everything persists to localStorage — no backend.
 
 export const STORAGE_KEY = 'focus-tracker:game';
+export const MIN_SESSION_SECONDS = 10;
+export const MAX_SESSION_SECONDS = 4 * 60 * 60;
 export const DAILY_GOAL = 3; // completed focus sessions required per day
 export const DAILY_GOAL_REWARD = 50; // coins for completing the daily goal
 // Rewards for consecutive focus days (Day 1..7 check-in strip).
@@ -30,6 +32,7 @@ export const STREAK_FREEZE_MAX = 3; // cap how many can be hoarded
 // focus grants 4 points/min (25 min = 1 tree), donations grant 1 point/coin.
 export const TREE_COST = 100;
 export const TREE_POINTS_PER_MIN = 100 / 25; // 4 points per focused minute
+const MAX_PERSISTED_TREES = 10_000;
 // --- Event mechanics (the banners are real) ---
 export const WEEKEND_MULTIPLIER = 2; // ×2 coins for sessions on Sat/Sun
 export const RECORD_BONUS = 50; // coins for beating your longest session
@@ -94,6 +97,7 @@ export interface GameState {
   currentStreak: number;
   bestStreak: number;
   lastFocusDate: string | null; // YYYY-MM-DD of the last completed session
+  dailyProgressDate: string | null; // date completedToday/dailyGoalClaimed belong to
   completedToday: number;
   dailyGoalClaimed: boolean;
   dailyBonusDate: string | null; // date the floating daily bonus was collected
@@ -114,6 +118,7 @@ export interface GameState {
   longestSession: number; // longest completed session in seconds (record)
   totalSessions: number; // completed sessions of all time
   jackpots: number; // Day-7 jackpots claimed (check-in cycles completed)
+  lastCheckinDate: string | null; // YYYY-MM-DD of the last check-in day claimed (one per day cap)
 }
 
 export const defaultGameState = (): GameState => ({
@@ -121,6 +126,7 @@ export const defaultGameState = (): GameState => ({
   currentStreak: 0,
   bestStreak: 0,
   lastFocusDate: null,
+  dailyProgressDate: null,
   completedToday: 0,
   dailyGoalClaimed: false,
   dailyBonusDate: null,
@@ -141,6 +147,7 @@ export const defaultGameState = (): GameState => ({
   longestSession: 0,
   totalSessions: 0,
   jackpots: 0,
+  lastCheckinDate: null,
 });
 
 // --- Forest tree lifecycle ---
@@ -151,7 +158,7 @@ export const defaultGameState = (): GameState => ({
 //    (your focus waters the tree). Oldest trees read as the most mature.
 export const TREE_STAGES = 5;
 export const epochDay = (d: Date = new Date()): number =>
-  Math.floor(d.getTime() / 86400000);
+  Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
 
 export const treeStage = (
   plantedDay: number,
@@ -177,22 +184,59 @@ export const yesterdayKey = (d: Date = new Date()): string => {
   return todayKey(y);
 };
 
+const dateOrdinal = (key: string): number | null => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
+  const [year, month, day] = key.split('-').map(Number);
+  const time = Date.UTC(year, month - 1, day);
+  const parsed = new Date(time);
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return Math.floor(time / 86400000);
+};
+
+const validDateKey = (value: unknown): string | null =>
+  typeof value === 'string' && dateOrdinal(value) !== null ? value : null;
+
+const safeInt = (value: unknown, max = Number.MAX_SAFE_INTEGER): number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? Math.min(value, max)
+    : 0;
+
+const safeNumber = (value: unknown, max: number): number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.min(value, max)
+    : 0;
+
 export const loadGameState = (): GameState => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultGameState();
-    const parsed = JSON.parse(raw) as Partial<GameState>;
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return defaultGameState();
+    }
+    const parsed = value as Partial<GameState>;
     // Coerce mascot fields so older saves (without them) get sane defaults.
-    const ownedMascots: MascotId[] = Array.isArray(parsed.ownedMascots)
-      ? parsed.ownedMascots.filter(isMascotId)
-      : ['bear'];
+    const ownedMascots: MascotId[] = Array.from(
+      new Set<MascotId>([
+        'bear',
+        ...(Array.isArray(parsed.ownedMascots)
+          ? parsed.ownedMascots.filter(isMascotId)
+          : []),
+      ]),
+    );
     const storedActive = parsed.activeMascot;
     const activeMascot: MascotId =
       storedActive && isMascotId(storedActive) && ownedMascots.includes(storedActive)
         ? storedActive
         : (ownedMascots[0] ?? 'bear');
     const ownedAccessories: AccessoryId[] = Array.isArray(parsed.ownedAccessories)
-      ? parsed.ownedAccessories.filter(isAccessoryId)
+      ? Array.from(new Set(parsed.ownedAccessories.filter(isAccessoryId)))
       : [];
     const equippedAccessory: AccessoryId | null =
       parsed.equippedAccessory &&
@@ -208,31 +252,63 @@ export const loadGameState = (): GameState => {
       storedTheme && isThemeId(storedTheme) && ownedThemes.includes(storedTheme)
         ? storedTheme
         : 'blue';
+    // Older saves used lastFocusDate for both streaks and daily counters.
+    const lastFocusDate = validDateKey(parsed.lastFocusDate);
+    const dailyProgressDate =
+      validDateKey(parsed.dailyProgressDate) ?? lastFocusDate;
+    const totalSessions = safeInt(parsed.totalSessions);
+    const trees = safeInt(parsed.trees, MAX_PERSISTED_TREES);
+    const claimedValues = Array.isArray(parsed.claimedDays)
+      ? new Set(parsed.claimedDays.filter(Number.isSafeInteger))
+      : new Set<number>();
+    const claimedDays: number[] = [];
+    for (let day = 1; day < DAY_REWARDS.length && claimedValues.has(day); day += 1) {
+      claimedDays.push(day);
+    }
     // Per-tree maturity records. Older saves have none — backfill so every
     // existing tree reads as mature (planted 4+ days / sessions ago).
-    const trees = Math.max(0, parsed.trees ?? 0);
     const today = epochDay();
-    const sessions = parsed.totalSessions ?? 0;
     const treePlantedDay =
-      Array.isArray(parsed.treePlantedDay) && parsed.treePlantedDay.length === trees
-        ? parsed.treePlantedDay
+      Array.isArray(parsed.treePlantedDay) &&
+      parsed.treePlantedDay.length === trees &&
+      parsed.treePlantedDay.every(day => Number.isSafeInteger(day) && day >= 0)
+        ? parsed.treePlantedDay.map(day => Math.min(day, today))
         : Array.from({ length: trees }, (_, i) => today - 4 - i);
     const treePlantedSession =
       Array.isArray(parsed.treePlantedSession) &&
-      parsed.treePlantedSession.length === trees
-        ? parsed.treePlantedSession
-        : Array.from({ length: trees }, (_, i) => sessions - 4 - i);
+      parsed.treePlantedSession.length === trees &&
+      parsed.treePlantedSession.every(
+        session => Number.isSafeInteger(session) && session >= 0,
+      )
+        ? parsed.treePlantedSession.map(session => Math.min(session, totalSessions))
+        : Array.from({ length: trees }, (_, i) => Math.max(0, totalSessions - 4 - i));
     return {
-      ...defaultGameState(),
-      ...parsed,
+      coins: safeInt(parsed.coins),
+      currentStreak: safeInt(parsed.currentStreak),
+      bestStreak: safeInt(parsed.bestStreak),
+      lastFocusDate,
+      dailyProgressDate,
+      completedToday: safeInt(parsed.completedToday),
+      dailyGoalClaimed: parsed.dailyGoalClaimed === true,
+      dailyBonusDate: validDateKey(parsed.dailyBonusDate),
+      claimedDays,
       ownedMascots,
       activeMascot,
       ownedAccessories,
       equippedAccessory,
-      ownedThemes,
-      activeTheme,
+      streakFreezes: safeInt(parsed.streakFreezes, STREAK_FREEZE_MAX),
+      trees,
+      treeProgress: safeNumber(parsed.treeProgress, TREE_COST - Number.EPSILON),
       treePlantedDay,
       treePlantedSession,
+      forestFocusMinutes: safeInt(parsed.forestFocusMinutes),
+      forestDonated: safeInt(parsed.forestDonated),
+      ownedThemes,
+      activeTheme,
+      longestSession: safeInt(parsed.longestSession, MAX_SESSION_SECONDS),
+      totalSessions,
+      jackpots: safeInt(parsed.jackpots),
+      lastCheckinDate: validDateKey(parsed.lastCheckinDate),
     };
   } catch {
     return defaultGameState();
@@ -249,9 +325,19 @@ export const saveGameState = (s: GameState): void => {
 
 // Roll the per-day counters over if the stored state is from a previous day.
 // ALWAYS returns a fresh object so callers can never mutate live state.
-export const normalizeForToday = (s: GameState): GameState => {
-  if (s.lastFocusDate === todayKey()) return { ...s };
-  return { ...s, completedToday: 0, dailyGoalClaimed: false };
+export const normalizeForToday = (
+  s: GameState,
+  now: Date = new Date(),
+): GameState => {
+  const today = todayKey(now);
+  const age = s.dailyProgressDate ? daysBetween(s.dailyProgressDate, today) : 1;
+  if (age <= 0) return { ...s };
+  return {
+    ...s,
+    dailyProgressDate: today,
+    completedToday: 0,
+    dailyGoalClaimed: false,
+  };
 };
 
 export const isWeekend = (d: Date = new Date()): boolean => {
@@ -280,9 +366,33 @@ export const recordSession = (
   seconds: number,
   now: Date = new Date(),
 ): { state: GameState; result: SessionResult } => {
-  const s = normalizeForToday(prev);
+  const s = normalizeForToday(prev, now);
   const t = todayKey(now);
-
+  if (
+    !Number.isSafeInteger(seconds) ||
+    seconds < MIN_SESSION_SECONDS ||
+    seconds > MAX_SESSION_SECONDS ||
+    (s.lastFocusDate !== null && daysBetween(s.lastFocusDate, t) < 0) ||
+    (s.dailyProgressDate !== null && daysBetween(s.dailyProgressDate, t) < 0)
+  ) {
+    return {
+      state: s,
+      result: {
+        coinsEarned: 0,
+        baseCoins: 0,
+        weekendBonus: false,
+        newRecord: false,
+        recordBonus: 0,
+        treesPlanted: 0,
+        streakIncreased: false,
+        streak: s.currentStreak,
+        bestStreak: s.bestStreak,
+        dailyGoalReached:
+          !s.dailyGoalClaimed && s.completedToday >= DAILY_GOAL,
+        freezeUsed: 0,
+      },
+    };
+  }
   const weekendBonus = isWeekend(now);
   const baseCoins = Math.round(seconds / 10);
   const coinsEarned = weekendBonus ? baseCoins * WEEKEND_MULTIPLIER : baseCoins;
@@ -322,6 +432,7 @@ export const recordSession = (
     currentStreak,
     bestStreak: Math.max(s.bestStreak, currentStreak),
     lastFocusDate: t,
+    dailyProgressDate: t,
     coins: s.coins + coinsEarned + recordBonus,
     completedToday: s.completedToday + 1,
     streakFreezes: s.streakFreezes - freezeUsed,
@@ -338,6 +449,15 @@ export const recordSession = (
       ...s.treePlantedSession,
       ...Array(treesPlanted).fill(s.totalSessions + 1),
     ],
+    // A genuinely broken streak also starts a fresh check-in cycle. Freezes
+    // preserve both the streak and its check-in progress.
+    claimedDays:
+      s.lastFocusDate !== null &&
+      s.lastFocusDate !== t &&
+      s.lastFocusDate !== yesterdayKey(now) &&
+      freezeUsed === 0
+        ? []
+        : s.claimedDays,
     forestFocusMinutes: s.forestFocusMinutes + focusMinutes,
   };
 
@@ -363,9 +483,14 @@ export const recordSession = (
 // Claim the daily-goal bonus (once per day, after DAILY_GOAL completions).
 export const claimDailyGoal = (
   prev: GameState,
+  now: Date = new Date(),
 ): { state: GameState; reward: number } => {
-  const s = normalizeForToday(prev);
-  if (s.dailyGoalClaimed || s.completedToday < DAILY_GOAL) {
+  const s = normalizeForToday(prev, now);
+  if (
+    s.dailyProgressDate !== todayKey(now) ||
+    s.dailyGoalClaimed ||
+    s.completedToday < DAILY_GOAL
+  ) {
     return { state: s, reward: 0 };
   }
   return {
@@ -383,11 +508,28 @@ export const claimDailyGoal = (
 export const claimDayReward = (
   prev: GameState,
   day: number,
+  now: Date = new Date(),
 ): { state: GameState; reward: number } => {
-  const s = normalizeForToday(prev);
+  const s = normalizeForToday(prev, now);
+  const today = todayKey(now);
+  // One check-in claim per calendar day to prevent cycling infinitely.
+  if (
+    s.lastCheckinDate !== null &&
+    daysBetween(s.lastCheckinDate, today) <= 0
+  ) {
+    return { state: s, reward: 0 };
+  }
+  const nextDay = s.claimedDays.length + 1;
+  const focusAge = s.lastFocusDate
+    ? daysBetween(s.lastFocusDate, today)
+    : Infinity;
+  const streakIsCurrent =
+    focusAge === 0 || focusAge === 1;
   if (
     day < 1 ||
     day > DAY_REWARDS.length ||
+    day !== nextDay ||
+    !streakIsCurrent ||
     s.currentStreak < day ||
     s.claimedDays.includes(day)
   ) {
@@ -401,6 +543,7 @@ export const claimDayReward = (
       // Day 7 completes the cycle (jackpot!) and starts a fresh one.
       claimedDays: day === DAY_REWARDS.length ? [] : [...s.claimedDays, day],
       jackpots: s.jackpots + (day === DAY_REWARDS.length ? 1 : 0),
+      lastCheckinDate: today,
     },
     reward,
   };
@@ -414,15 +557,22 @@ const hashDate = (key: string): number => {
   return h;
 };
 
-export const dailyBonusValue = (): number => 10 + (hashDate(todayKey()) % 21);
+export const dailyBonusValue = (now: Date = new Date()): number =>
+  10 + (hashDate(todayKey(now)) % 21);
 
 export const claimDailyBonus = (
   prev: GameState,
+  now: Date = new Date(),
 ): { state: GameState; reward: number } => {
-  const s = normalizeForToday(prev);
-  const t = todayKey();
-  if (s.dailyBonusDate === t) return { state: s, reward: 0 };
-  const reward = dailyBonusValue();
+  const s = normalizeForToday(prev, now);
+  const t = todayKey(now);
+  if (
+    s.dailyBonusDate !== null &&
+    daysBetween(s.dailyBonusDate, t) <= 0
+  ) {
+    return { state: s, reward: 0 };
+  }
+  const reward = dailyBonusValue(now);
   return {
     state: { ...s, dailyBonusDate: t, coins: s.coins + reward },
     reward,
@@ -435,44 +585,46 @@ export const awardFailConsolation = (
   prev: GameState,
   survivedSeconds: number,
 ): { state: GameState; reward: number } => {
-  const reward = Math.floor(survivedSeconds / 30) * FAIL_CONSOLATION_PER_30S;
+  if (!Number.isFinite(survivedSeconds) || survivedSeconds <= 0) {
+    return { state: prev, reward: 0 };
+  }
+  const safeSeconds = Math.min(Math.floor(survivedSeconds), MAX_SESSION_SECONDS);
+  const reward = Math.floor(safeSeconds / 30) * FAIL_CONSOLATION_PER_30S;
   if (reward <= 0) return { state: prev, reward: 0 };
   return { state: { ...prev, coins: prev.coins + reward }, reward };
-};
-
-const parseKey = (key: string): Date => {
-  const [y, m, d] = key.split('-').map(Number);
-  return new Date(y, m - 1, d);
 };
 
 // Whole days between two YYYY-MM-DD keys (Infinity if `from` is null).
 export const daysBetween = (from: string | null, to: string): number => {
   if (!from) return Infinity;
-  const ms = parseKey(to).getTime() - parseKey(from).getTime();
-  return Math.round(ms / 86400000);
+  const fromDay = dateOrdinal(from);
+  const toDay = dateOrdinal(to);
+  if (fromDay === null || toDay === null) return Infinity;
+  return toDay - fromDay;
 };
 
 // A streak is repairable when it exists and at least one full day was missed
 // (the next completed session would otherwise reset it to 1).
-export const canRepairStreak = (s: GameState): boolean => {
+export const canRepairStreak = (s: GameState, now: Date = new Date()): boolean => {
   if (s.currentStreak <= 0 || s.lastFocusDate === null) return false;
-  return daysBetween(s.lastFocusDate, todayKey()) >= 2;
+  return daysBetween(s.lastFocusDate, todayKey(now)) === 2;
 };
 
 // Paid streak repair: spend coins to mark yesterday as focused, so the next
 // session extends the streak instead of restarting it.
 export const repairStreak = (
   prev: GameState,
+  now: Date = new Date(),
 ): { state: GameState; repaired: boolean } => {
-  const s = normalizeForToday(prev);
-  if (!canRepairStreak(s) || s.coins < STREAK_REPAIR_COST) {
+  const s = normalizeForToday(prev, now);
+  if (!canRepairStreak(s, now) || s.coins < STREAK_REPAIR_COST) {
     return { state: s, repaired: false };
   }
   return {
     state: {
       ...s,
       coins: s.coins - STREAK_REPAIR_COST,
-      lastFocusDate: yesterdayKey(),
+      lastFocusDate: yesterdayKey(now),
     },
     repaired: true,
   };
@@ -690,7 +842,10 @@ export const donateToForest = (
   amount: number,
 ): { state: GameState; treesPlanted: number; donated: number } => {
   const s = normalizeForToday(prev);
-  const donated = Math.max(0, Math.min(amount, s.coins));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { state: s, treesPlanted: 0, donated: 0 };
+  }
+  const donated = Math.min(Math.floor(amount), s.coins);
   if (donated <= 0) return { state: s, treesPlanted: 0, donated: 0 };
   const progress = s.treeProgress + donated;
   const treesPlanted = Math.floor(progress / TREE_COST);
@@ -700,6 +855,14 @@ export const donateToForest = (
       coins: s.coins - donated,
       trees: s.trees + treesPlanted,
       treeProgress: progress % TREE_COST,
+      treePlantedDay: [
+        ...s.treePlantedDay,
+        ...Array(treesPlanted).fill(epochDay()),
+      ],
+      treePlantedSession: [
+        ...s.treePlantedSession,
+        ...Array(treesPlanted).fill(s.totalSessions),
+      ],
       forestDonated: s.forestDonated + donated,
     },
     treesPlanted,

@@ -1,23 +1,31 @@
 'use client';
 
-const COLORS = ['#38BDF8', '#F472B6', '#FBBF24', '#34D399', '#A78BFA', '#FB7185'];
+const COLORS = ['#38BDF8', '#F472B6', '#FBBF24', '#34D399', '#A78BFA', '#FB7185', '#60A5FA'];
 
-// Pieces fly outward from a burst point, rotating and fading. Angles/distances
-// are precomputed so no CSS trig is needed (safe for older WebViews).
-const PIECES = Array.from({ length: 26 }, (_, i) => {
-  const angle = ((i / 26) * 360 + ((i * 47) % 18)) * (Math.PI / 180);
-  const dist = 70 + ((i * 53) % 100);
+// Pieces fly outward from a burst point in an explosive arc with gravity
+const PIECES = Array.from({ length: 30 }, (_, i) => {
+  const angle = (i * 137.5 * Math.PI) / 180;
+  const dist = 65 + ((i * 49) % 95);
+  const bx = Math.round(Math.cos(angle) * dist);
+  const by = Math.round(Math.sin(angle) * dist - 25);
+  const gy = 50 + ((i * 29) % 60);
+  const isCircle = i % 4 === 0;
+
   return {
     left: 50,
     top: 32,
-    x: Math.cos(angle) * dist,
-    y: Math.sin(angle) * dist,
-    delay: (i % 5) * 0.06,
-    dur: 1.1 + (i % 4) * 0.25,
+    bx: `${bx}px`,
+    by: `${by}px`,
+    gy: `${gy}px`,
+    delay: `${((i % 6) * 0.02).toFixed(3)}s`,
+    dur: `${(1.2 + (i % 4) * 0.12).toFixed(2)}s`,
     color: COLORS[i % COLORS.length],
-    w: 6 + (i % 3) * 2,
-    h: 10 + (i % 4) * 3,
-    round: i % 5 === 0,
+    w: isCircle ? 7 : 6 + (i % 3) * 2,
+    h: isCircle ? 7 : 10 + (i % 4) * 3,
+    round: isCircle,
+    r1: `${((i * 47) % 180) - 90}deg`,
+    r2: `${((i * 89) % 360) - 180}deg`,
+    r3: `${((i * 191) % 720) + 360}deg`,
   };
 });
 
@@ -30,24 +38,29 @@ const ConfettiBurst = () => (
         left: 0;
         opacity: 0;
         animation-name: confettiBurst;
-        animation-timing-function: cubic-bezier(0.22, 0.8, 0.36, 1);
-        animation-fill-mode: both;
+        animation-timing-function: cubic-bezier(0.14, 0.82, 0.3, 1);
+        animation-fill-mode: forwards;
       }
       @keyframes confettiBurst {
         0% {
-          transform: translate(-50%, -50%) rotate(0deg) scale(1);
-          opacity: 1;
+          transform: translate(-50%, -50%) translate3d(0, 0, 0) scale(0) rotate(0deg);
+          opacity: 0;
         }
-        75% {
+        5% {
           opacity: 1;
+          transform: translate(-50%, -50%) translate3d(calc(var(--bx) * 0.35), calc(var(--by) * 0.35), 0) scale(1.25) rotate(var(--r1));
+        }
+        32% {
+          opacity: 1;
+          transform: translate(-50%, -50%) translate3d(var(--bx), var(--by), 0) scale(1) rotate(var(--r2));
+        }
+        68% {
+          opacity: 1;
+          transform: translate(-50%, -50%) translate3d(calc(var(--bx) * 1.06), calc(var(--by) + var(--gy) * 0.5), 0) scale(0.9) rotate(calc(var(--r2) + 90deg));
         }
         100% {
-          transform: translate(
-              calc(-50% + var(--bx)),
-              calc(-50% + var(--by))
-            )
-            rotate(540deg) scale(0.7);
           opacity: 0;
+          transform: translate(-50%, -50%) translate3d(calc(var(--bx) * 1.12), calc(var(--by) + var(--gy)), 0) scale(0.4) rotate(var(--r3));
         }
       }
     `}</style>
@@ -63,10 +76,14 @@ const ConfettiBurst = () => (
             height: p.h,
             background: p.color,
             borderRadius: p.round ? '50%' : '2px',
-            '--bx': `${p.x}px`,
-            '--by': `${p.y}px`,
-            animationDelay: `${p.delay}s`,
-            animationDuration: `${p.dur}s`,
+            '--bx': p.bx,
+            '--by': p.by,
+            '--gy': p.gy,
+            '--r1': p.r1,
+            '--r2': p.r2,
+            '--r3': p.r3,
+            animationDelay: p.delay,
+            animationDuration: p.dur,
           } as React.CSSProperties
         }
       />

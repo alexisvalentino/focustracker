@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   TREE_COST,
   TREE_POINTS_PER_MIN,
@@ -17,6 +17,7 @@ interface ForestCardProps {
   totalSessions: number;
   forestFocusMinutes: number;
   forestDonated: number;
+  active?: boolean;
   onDonate: () => void;
 }
 
@@ -150,6 +151,7 @@ const ForestCard = ({
   totalSessions,
   forestFocusMinutes,
   forestDonated,
+  active = true,
   onDonate,
 }: ForestCardProps) => {
   const donateAmount = Math.min(coins, TREE_COST);
@@ -161,7 +163,7 @@ const ForestCard = ({
   const today = epochDay();
 
   // Per-tree maturity — oldest planted trees read as the most mature.
-  const stages = Array.from({ length: trees }, (_, i) =>
+  const stages = Array.from({ length: visible }, (_, i) =>
     treeStage(treePlantedDay[i] ?? today, treePlantedSession[i] ?? 0, totalSessions, today),
   );
 
@@ -173,9 +175,11 @@ const ForestCard = ({
   };
   const [sunKey, setSunKey] = useState(0);
   const [rainCloud, setRainCloud] = useState<number | null>(null);
+  const rainTimerRef = useRef(0);
   const makeItRain = (key: number) => {
+    window.clearTimeout(rainTimerRef.current);
     setRainCloud(key);
-    window.setTimeout(() => setRainCloud(c => (c === key ? null : c)), 1500);
+    rainTimerRef.current = window.setTimeout(() => setRainCloud(null), 1500);
   };
   // Butterfly — wanders the scene on its own (new spot every few seconds)
   // and darts away when tapped. It is never stuck in one place.
@@ -186,9 +190,11 @@ const ForestCard = ({
       y: 8 + Math.floor(Math.random() * 38), // % down the scene
     });
   useEffect(() => {
+    if (!active) return;
     const id = window.setInterval(wanderButterfly, 3500);
     return () => window.clearInterval(id);
-  }, []);
+  }, [active]);
+  useEffect(() => () => window.clearTimeout(rainTimerRef.current), []);
 
   return (
     <div className="mt-3 w-full rounded-2xl border border-slate-200/70 bg-white p-4 text-left shadow-sm">
@@ -211,7 +217,7 @@ const ForestCard = ({
         <button
           aria-label="Sun"
           onClick={() => setSunKey(k => k + 1)}
-          className="absolute right-3 top-2 h-7 w-7 outline-none"
+          className="absolute right-3 top-2 h-7 w-7 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
         >
           <span
             key={sunKey}
@@ -230,7 +236,7 @@ const ForestCard = ({
             key={c.key}
             aria-label="Cloud"
             onClick={() => makeItRain(c.key)}
-            className={`animate-drift absolute ${c.cls} outline-none`}
+            className={`animate-drift absolute rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${c.cls}`}
             style={{ animationDuration: c.dur, animationDelay: c.delay }}
           >
             {/* hand-drawn puffy cloud (soft blue under-shadow, white body) */}
@@ -290,7 +296,7 @@ const ForestCard = ({
           <button
             aria-label="Butterfly"
             onClick={wanderButterfly}
-            className="absolute left-0 top-0 outline-none"
+            className="absolute left-0 top-0 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
             style={{
               left: `${butterfly.x}%`,
               top: `${butterfly.y}%`,
@@ -312,7 +318,7 @@ const ForestCard = ({
                 key={i}
                 onClick={() => popTree(i)}
                 aria-label={`Tree ${i + 1} — ${STAGE_NAMES[stage]}`}
-                className={`relative -mb-1 outline-none ${tapped === i ? 'animate-tree-wiggle' : ''}`}
+                className={`relative -mb-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${tapped === i ? 'animate-tree-wiggle' : ''}`}
                 style={{ transform: `translateY(${v.x > 0 ? v.x * -0.4 : 0}px) scale(${v.s})` }}
               >
                 <span

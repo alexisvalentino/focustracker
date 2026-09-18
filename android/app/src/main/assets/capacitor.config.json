@@ -1,17 +1,5 @@
 {
 	"appId": "com.alexisvalentino.focustracker",
 	"appName": "Focus Tracker",
-	"bundledWebRuntime": false,
-	"npmClient": "npm",
-	"webDir": "out",
-	"plugins": {
-		"SplashScreen": {
-			"launchShowDuration": 1000,
-			"launchAutoHide": true,
-			"backgroundColor": "#7DD3FC",
-			"showSpinner": false,
-			"fadeOutDuration": 350
-		}
-	},
-	"cordova": {}
+	"webDir": "out"
 }

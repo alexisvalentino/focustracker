@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { IonContent } from '@ionic/react';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
+import { App } from '@capacitor/app';
 import Mascot from './Mascot';
 import ConfettiBurst from './ConfettiBurst';
 import HomePage from './HomePage';
@@ -26,6 +27,7 @@ import {
   claimDayReward,
   claimDailyGoal,
   dailyBonusValue,
+  daysBetween,
   donateToForest,
   equipAccessory,
   equipMascot,
@@ -222,6 +224,12 @@ const FocusTracker = () => {
     return () => window.cancelAnimationFrame(raf);
   }, [scrollToTab]);
 
+  useEffect(() => {
+    const alignActivePage = () => scrollToTab(activeTab, false);
+    window.addEventListener('resize', alignActivePage);
+    return () => window.removeEventListener('resize', alignActivePage);
+  }, [activeTab, scrollToTab]);
+
   const onCarouselScroll = () => {
     const el = carouselRef.current;
     if (!el || el.clientWidth === 0) return;
@@ -232,15 +240,21 @@ const FocusTracker = () => {
 
   // Refs so the mount-once listeners always see the latest state.
   const phaseRef = useRef<Phase>('idle');
-  const startedAtRef = useRef(0);
-  const sessionStartAtRef = useRef(0);
+  const sessionStartMonotonicRef = useRef(0);
   const lastTouchHandledAtRef = useRef(0);
   const motionHitsRef = useRef(0);
   const successHandledRef = useRef(false);
+  const popTimerRef = useRef(0);
 
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    if (game.dailyProgressDate === todayKey()) setBubblePopped(false);
+  }, [game.dailyProgressDate]);
+
+  useEffect(() => () => window.clearTimeout(popTimerRef.current), []);
 
   // A session can only end by failing or completing — make sure the user is
   // looking at the tracker when that happens (a swipe mid-session may have
@@ -257,11 +271,16 @@ const FocusTracker = () => {
   const failSession = useCallback(
     (reason: FailReason) => {
       if (phaseRef.current !== 'running') return;
+      const sessionMs = performance.now() - sessionStartMonotonicRef.current;
+      // The deadline may pass between timer ticks. A touch after the goal is a
+      // completion, not a failure; leave the pending tick to finalize it.
+      if (sessionMs >= duration * 1000) return;
+      // Close the session synchronously. Pointer, touch, and native-touch can
+      // arrive before React commits the failed phase.
+      phaseRef.current = 'failed';
       // Temptation tax: even a failed session pays a small consolation based on
       // how long you resisted, but far less than completing it would have.
-      const seconds = Math.floor(
-        (Date.now() - sessionStartAtRef.current) / 1000,
-      );
+      const seconds = Math.floor(sessionMs / 1000);
       const { state, reward } = awardFailConsolation(gameRef.current, seconds);
       if (reward > 0) update(() => state);
       setFailResult({ seconds, reward });
@@ -274,7 +293,7 @@ const FocusTracker = () => {
       playFailSound();
       hapticFail();
     },
-    [gameRef, update, scrollToTab],
+    [duration, gameRef, update, scrollToTab],
   );
 
   // --- Touch detection (works on Android, iOS, and browser) ---
@@ -302,6 +321,21 @@ const FocusTracker = () => {
     };
   }, [failSession]);
 
+  useEffect(() => {
+    let disposed = false;
+    let removeListener: (() => Promise<void>) | undefined;
+    void App.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) failSession('left');
+    }).then(handle => {
+      if (disposed) void handle.remove();
+      else removeListener = () => handle.remove();
+    });
+    return () => {
+      disposed = true;
+      if (removeListener) void removeListener();
+    };
+  }, [failSession]);
+
   // --- Movement detection (DeviceMotion API / accelerometer + gyroscope) ---
   // Fires natively in Android WebView; on iOS it only starts after the user
   // grants motion permission (requested from the START button tap).
@@ -324,7 +358,7 @@ const FocusTracker = () => {
         return;
       }
       // Ignore the jostle caused by the START tap itself.
-      if (Date.now() - sessionStartAtRef.current < MOTION_GRACE_MS) return;
+      if (performance.now() - sessionStartMonotonicRef.current < MOTION_GRACE_MS) return;
       motionHitsRef.current += 1;
       if (motionHitsRef.current >= MOTION_CONSECUTIVE) {
         motionHitsRef.current = 0;
@@ -338,10 +372,10 @@ const FocusTracker = () => {
   // iOS (13+) requires an explicit permission prompt for motion data, and it
   // must be requested from a user gesture — the START button tap is one.
   const requestMotionPermission = useCallback(() => {
-    const DM = DeviceMotionEvent as unknown as {
+    const DM = window.DeviceMotionEvent as unknown as {
       requestPermission?: () => Promise<string>;
-    };
-    if (typeof DM !== 'undefined' && typeof DM.requestPermission === 'function') {
+    } | undefined;
+    if (DM && typeof DM.requestPermission === 'function') {
       DM.requestPermission()
         .then(() => {
           // Granted — accelerometer events now flow into devicemotion.
@@ -355,14 +389,16 @@ const FocusTracker = () => {
   // Count-up timer while a session is running.
   useEffect(() => {
     if (phase !== 'running') return;
-    startedAtRef.current = Date.now();
     const id = window.setInterval(() => {
-      const t = Math.floor((Date.now() - startedAtRef.current) / 1000);
+      const t = Math.floor(
+        (performance.now() - sessionStartMonotonicRef.current) / 1000,
+      );
       if (t >= duration) {
         setElapsed(duration);
         // Guard against a stray extra tick before the interval is torn down.
         if (!successHandledRef.current) {
           successHandledRef.current = true;
+          phaseRef.current = 'done';
           playSuccessSound();
           hapticSuccess();
           const { state, result } = recordSession(gameRef.current, duration);
@@ -401,8 +437,9 @@ const FocusTracker = () => {
   const start = () => {
     setElapsed(0);
     setFailResult(null);
+    sessionStartMonotonicRef.current = performance.now();
+    phaseRef.current = 'running';
     setPhase('running');
-    sessionStartAtRef.current = Date.now();
     successHandledRef.current = false;
     requestMotionPermission();
     // Create/resume the AudioContext from this user gesture so iOS allows
@@ -412,12 +449,14 @@ const FocusTracker = () => {
 
   const reset = () => {
     setElapsed(0);
+    phaseRef.current = 'idle';
     setPhase('idle');
   };
 
   const showPop = (text: string) => {
+    window.clearTimeout(popTimerRef.current);
     setPopText(text);
-    window.setTimeout(() => setPopText(null), 1400);
+    popTimerRef.current = window.setTimeout(() => setPopText(null), 1400);
   };
 
   const collectBubble = () => {
@@ -531,19 +570,32 @@ const FocusTracker = () => {
 
   const progress = Math.min(100, (elapsed / duration) * 100);
   const dailyGoalReached =
-    !game.dailyGoalClaimed && game.completedToday >= DAILY_GOAL;
-  const bubbleVisible = !bubblePopped && game.dailyBonusDate !== todayKey();
+    game.dailyProgressDate === todayKey() &&
+    !game.dailyGoalClaimed &&
+    game.completedToday >= DAILY_GOAL;
+  const bonusAge = game.dailyBonusDate
+    ? daysBetween(game.dailyBonusDate, todayKey())
+    : Infinity;
+  const bubbleVisible = !bubblePopped && bonusAge > 0;
   const weekend = isWeekend();
 
   return (
-    <IonContent fullscreen style={{ '--background': 'rgb(var(--sky-50, 240 249 255))' }}>
+    <IonContent
+      fullscreen
+      data-theme={game.activeTheme}
+      style={{ '--background': 'rgb(var(--sky-50, 240 249 255))' }}
+    >
       <div
         data-theme={game.activeTheme}
         className="relative flex h-full w-full flex-col bg-gradient-to-b from-sky-100 via-sky-50 to-white"
       >
         {/* reward toast (floats above whatever page is visible) */}
         {popText && (
-          <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center"
+          >
             <span className="animate-bounce rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-black text-emerald-600 shadow-sm">
               {popText}
             </span>
@@ -554,7 +606,9 @@ const FocusTracker = () => {
         <div
           ref={carouselRef}
           onScroll={onCarouselScroll}
-          className="no-scrollbar flex flex-1 snap-x snap-mandatory overflow-x-auto"
+          className={`no-scrollbar flex flex-1 snap-x snap-mandatory ${
+            phase === 'idle' ? 'overflow-x-auto' : 'overflow-x-hidden'
+          }`}
         >
           <HomePage
             streak={game.currentStreak}
@@ -573,6 +627,7 @@ const FocusTracker = () => {
             forestFocusMinutes={game.forestFocusMinutes}
             forestDonated={game.forestDonated}
             weekend={weekend}
+            active={activeTab === 'home'}
             onRepair={repairStreakHandler}
             onBuyFreeze={buyFreezeHandler}
             onDonate={donateHandler}
@@ -720,7 +775,15 @@ const FocusTracker = () => {
                   />
 
                   {/* circular gradient progress ring */}
-                  <div className="relative mx-auto h-60 w-60">
+                  <div
+                    role="progressbar"
+                    aria-label="Focus session progress"
+                    aria-valuemin={0}
+                    aria-valuemax={duration}
+                    aria-valuenow={elapsed}
+                    aria-valuetext={`${formatTime(elapsed)} elapsed of ${formatTime(duration)}`}
+                    className="relative mx-auto h-60 w-60"
+                  >
                     <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
                       <defs>
                         <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -775,7 +838,7 @@ const FocusTracker = () => {
               )}
 
               {phase === 'failed' && (
-                <div className="text-center">
+                <div className="text-center" role="alert">
                   <Mascot
                     mood="sad"
                     variant={game.activeMascot}
@@ -819,7 +882,7 @@ const FocusTracker = () => {
               )}
 
               {phase === 'done' && (
-                <div className="relative text-center">
+                <div className="relative text-center" role="status" aria-live="polite">
                   {(lastNewRecord || lastTreesPlanted > 0) && <ConfettiBurst />}
                   <Mascot
                     mood="happy"
@@ -894,6 +957,8 @@ const FocusTracker = () => {
             trees={game.trees}
             jackpots={game.jackpots}
             totalSessions={game.totalSessions}
+            lastFocusDate={game.lastFocusDate}
+            lastCheckinDate={game.lastCheckinDate}
             bubbleVisible={bubbleVisible}
             bubbleValue={dailyBonusValue()}
             onCollectBubble={collectBubble}
@@ -916,7 +981,7 @@ const FocusTracker = () => {
         />
 
         {/* occasional dev tip — Buy me a coffee (random, dismissible) */}
-        <DevTip />
+        <DevTip enabled={phase === 'idle'} />
       </div>
     </IonContent>
   );

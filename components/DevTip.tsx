@@ -5,7 +5,7 @@ const STORAGE_KEY = 'focus-tracker:devtip';
 const SHOW_CHANCE = 0.15; // 15% chance per app load
 const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000; // dismiss for 1 week
 
-const DevTip = () => {
+const DevTip = ({ enabled = true }: { enabled?: boolean }) => {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -30,7 +30,7 @@ const DevTip = () => {
     } catch { /* noop */ }
   };
 
-  if (!visible) return null;
+  if (!visible || !enabled) return null;
 
   return (
     <div className="pointer-events-auto fixed bottom-20 left-1/2 z-50 w-[calc(100%-3rem)] max-w-sm -translate-x-1/2 animate-slide-up">
@@ -39,7 +39,7 @@ const DevTip = () => {
         <button
           onClick={dismiss}
           aria-label="Dismiss"
-          className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
+          className="absolute right-1 top-1 flex h-10 w-10 items-center justify-center rounded-full text-xs font-bold text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
         >
           ✕
         </button>

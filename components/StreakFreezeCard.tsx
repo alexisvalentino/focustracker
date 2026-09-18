@@ -39,7 +39,7 @@ const StreakFreezeCard = ({ coins, freezes, onBuy }: StreakFreezeCardProps) => {
               : 'cursor-not-allowed bg-slate-100 text-slate-400'
         }`}
       >
-        {maxed ? 'Freeze stock full — use them!' : `Buy 1 freeze · ${STREAK_FREEZE_COST} 🪙`}
+        {maxed ? 'Freeze stock full · used automatically' : `Buy 1 freeze · ${STREAK_FREEZE_COST} 🪙`}
       </button>
     </div>
   );
