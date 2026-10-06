@@ -211,10 +211,7 @@ const RewardsPage = ({
               const claimed = claimedDays.includes(day);
               const todayAlreadyClaimed = lastCheckinDate === todayKey();
               const nextDay = claimedDays.length + 1;
-              const focusAge = lastFocusDate
-                ? daysBetween(lastFocusDate, todayKey())
-                : Infinity;
-              const streakIsCurrent = focusAge === 0 || focusAge === 1;
+              const focusedToday = lastFocusDate === todayKey();
               const checkinDateValid =
                 lastCheckinDate === null ||
                 daysBetween(lastCheckinDate, todayKey()) > 0;
@@ -222,7 +219,7 @@ const RewardsPage = ({
                 day === nextDay &&
                 !claimed &&
                 currentStreak >= day &&
-                streakIsCurrent &&
+                focusedToday &&
                 checkinDateValid &&
                 !todayAlreadyClaimed;
               const isJackpot = day === DAY_REWARDS.length;

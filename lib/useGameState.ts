@@ -5,7 +5,6 @@ import {
   loadGameState,
   normalizeForToday,
   saveGameState,
-  todayKey,
 } from './gameState';
 
 // React hook around the localStorage-backed gamification state. `game` is the
@@ -26,10 +25,19 @@ export const useGameState = () => {
   // Keep daily counters correct when the app remains open across midnight or
   // returns from the background on a new day.
   useEffect(() => {
-    const refreshDay = () =>
-      setGame(prev =>
-        prev.dailyProgressDate === todayKey() ? prev : normalizeForToday(prev),
-      );
+    const refreshDay = () => {
+      const prev = gameRef.current;
+      const next = normalizeForToday(prev);
+      if (
+        prev.dailyProgressDate !== next.dailyProgressDate ||
+        prev.currentStreak !== next.currentStreak ||
+        prev.claimedDays !== next.claimedDays
+      ) {
+        gameRef.current = next;
+        saveGameState(next);
+        setGame(next);
+      }
+    };
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') refreshDay();
     };

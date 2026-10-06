@@ -442,6 +442,31 @@ console.log('== 13. Daily rollover is independent from streak repair ==');
   ok(repaired.state.completedToday === 2, 'streak repair does not erase current daily progress');
 }
 
+console.log('== 13b. Streak expiry, repair window, and advance freezes ==');
+{
+  const now = new Date(2026, 7, 20, 12);
+  const missed = { ...base(), currentStreak: 5, bestStreak: 5,
+    lastFocusDate: '2026-08-18', dailyProgressDate: '2026-08-18',
+    claimedDays: [1, 2, 3, 4, 5], coins: 200 };
+  const rolled = gs.normalizeForToday(missed, now);
+  ok(gs.activeStreak(rolled, now) === 0, 'missed day shows zero active streak');
+  ok(rolled.currentStreak === 5 && gs.canRepairStreak(rolled, now), 'old streak retained only for repair window');
+  ok(rolled.bestStreak === 5, 'personal best retained after miss');
+  // The store validates the same rule against the actual current date.
+  const realYesterday = new Date(); realYesterday.setDate(realYesterday.getDate() - 2);
+  const repairWindow = { ...missed, lastFocusDate: gs.todayKey(realYesterday) };
+  ok(!gs.buyStreakFreeze(repairWindow).ok, 'cannot buy freeze after missed day');
+  const uncovered = gs.recordSession(rolled, 60, now);
+  ok(uncovered.state.currentStreak === 1 && uncovered.state.claimedDays.length === 0, 'unprotected session restarts streak and check-ins');
+  const protectedState = { ...missed, streakFreezes: 1 };
+  const frozen = gs.recordSession(protectedState, 60, now);
+  ok(gs.activeStreak(protectedState, now) === 5 && frozen.state.currentStreak === 6 && frozen.result.freezeUsed === 1, 'pre-owned freeze protects and is consumed');
+  ok(!gs.canRepairStreak(protectedState, now) && !gs.repairStreak(protectedState, now).repaired, 'covered gap cannot charge for an unnecessary repair');
+  const late = gs.normalizeForToday(missed, new Date(2026, 7, 23, 12));
+  ok(late.currentStreak === 0 && late.claimedDays.length === 0 && late.bestStreak === 5, 'unrepairable streak and check-ins expire on rollover');
+  ok(gs.recordSession(late, 60, new Date(2026, 7, 23, 12)).state.currentStreak === 1, 'first later session starts a fresh streak');
+}
+
 console.log('== 14. Clock rollback protection ==');
 {
   const day1 = new Date(2026, 8, 18, 10, 0, 0);
@@ -453,8 +478,10 @@ console.log('== 14. Clock rollback protection ==');
   const first = gs.claimDayReward(s, 1, day1);
   ok(first.reward > 0, 'fixed-date D1 claim succeeds');
   ok(gs.claimDayReward(first.state, 2, prior).reward === 0, 'clock rollback cannot advance check-ins');
-  const second = gs.claimDayReward(first.state, 2, day2);
-  ok(second.reward > 0, 'next calendar day advances check-ins');
+  ok(gs.claimDayReward(first.state, 2, day2).reward === 0, 'check-in requires a focus session today');
+  const focused = gs.recordSession(first.state, 60, day2);
+  const second = gs.claimDayReward(focused.state, 2, day2);
+  ok(second.reward > 0, 'next calendar day advances check-ins after focusing');
 
   const bonus = gs.claimDailyBonus(base(), day1);
   ok(bonus.reward > 0, 'fixed-date daily bonus succeeds');
@@ -532,6 +559,25 @@ console.log('== 17. Calendar date arithmetic ==');
   ok(gs.daysBetween('2024-02-28', '2024-03-01') === 2, 'leap day is counted');
   ok(gs.daysBetween('2026-02-30', '2026-03-01') === Infinity, 'invalid calendar date is rejected');
   ok(gs.daysBetween('bad', '2026-03-01') === Infinity, 'malformed date is rejected');
+}
+
+console.log('== 18. Interrupted session recovery ==');
+{
+  const savedLocalStorage = global.localStorage;
+  const items = new Map();
+  global.localStorage = {
+    getItem: key => items.get(key) ?? null,
+    setItem: (key, value) => items.set(key, value),
+    removeItem: key => items.delete(key),
+  };
+  gs.markSessionRunning();
+  ok(gs.consumeInterruptedSession(), 'reload detects an interrupted running session');
+  ok(!gs.consumeInterruptedSession(), 'interruption is reported only once');
+  gs.markSessionRunning();
+  gs.clearSessionRunning();
+  ok(!gs.consumeInterruptedSession(), 'completed or failed session leaves no interruption');
+  ok(items.size === 0, 'interruption marker is not stored in game rewards');
+  global.localStorage = savedLocalStorage;
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -323,7 +323,49 @@ export const saveGameState = (s: GameState): void => {
   }
 };
 
-// Roll the per-day counters over if the stored state is from a previous day.
+// A running timer is intentionally not resumed after a reload: time spent with
+// the app closed cannot be verified as focused time. Persist only an interruption
+// marker, never elapsed time or a reward, so a restart can explain the failure.
+const SESSION_MARKER_KEY = 'focus-tracker:running-session';
+
+export const markSessionRunning = (): void => {
+  try {
+    localStorage.setItem(SESSION_MARKER_KEY, 'running');
+  } catch {
+    // The timer still works without storage; crash recovery is unavailable.
+  }
+};
+
+export const clearSessionRunning = (): void => {
+  try {
+    localStorage.removeItem(SESSION_MARKER_KEY);
+  } catch {
+    // Storage unavailable.
+  }
+};
+
+export const consumeInterruptedSession = (): boolean => {
+  try {
+    const interrupted = localStorage.getItem(SESSION_MARKER_KEY) === 'running';
+    localStorage.removeItem(SESSION_MARKER_KEY);
+    return interrupted;
+  } catch {
+    return false;
+  }
+};
+
+// A streak can remain in storage during the one-day paid-repair window, but it
+// must not be shown as active unless its gap is already covered by freezes.
+export const activeStreak = (s: GameState, now: Date = new Date()): number => {
+  if (s.currentStreak === 0 || s.lastFocusDate === null) return 0;
+  const gap = daysBetween(s.lastFocusDate, todayKey(now));
+  if (gap < 0) return 0;
+  return gap <= 1 || s.streakFreezes >= gap - 1 ? s.currentStreak : 0;
+};
+
+// Roll daily counters over and discard streaks that can no longer be repaired
+// or protected. Keep a repairable streak in storage for one day, while the UI
+// uses activeStreak to display zero until it is repaired.
 // ALWAYS returns a fresh object so callers can never mutate live state.
 export const normalizeForToday = (
   s: GameState,
@@ -331,12 +373,17 @@ export const normalizeForToday = (
 ): GameState => {
   const today = todayKey(now);
   const age = s.dailyProgressDate ? daysBetween(s.dailyProgressDate, today) : 1;
-  if (age <= 0) return { ...s };
+  if (age < 0) return { ...s }; // Do not overwrite future progress on clock rollback.
+  const gap = s.lastFocusDate ? daysBetween(s.lastFocusDate, today) : Infinity;
+  const expired =
+    s.currentStreak > 0 && gap > 2 && s.streakFreezes < gap - 1;
   return {
     ...s,
-    dailyProgressDate: today,
-    completedToday: 0,
-    dailyGoalClaimed: false,
+    currentStreak: expired ? 0 : s.currentStreak,
+    claimedDays: expired ? [] : s.claimedDays,
+    dailyProgressDate: age > 0 ? today : s.dailyProgressDate,
+    completedToday: age > 0 ? 0 : s.completedToday,
+    dailyGoalClaimed: age > 0 ? false : s.dailyGoalClaimed,
   };
 };
 
@@ -452,10 +499,10 @@ export const recordSession = (
     // A genuinely broken streak also starts a fresh check-in cycle. Freezes
     // preserve both the streak and its check-in progress.
     claimedDays:
-      s.lastFocusDate !== null &&
-      s.lastFocusDate !== t &&
-      s.lastFocusDate !== yesterdayKey(now) &&
-      freezeUsed === 0
+      (s.lastFocusDate !== null &&
+        s.lastFocusDate !== t &&
+        s.lastFocusDate !== yesterdayKey(now) &&
+        freezeUsed === 0) || s.currentStreak === 0
         ? []
         : s.claimedDays,
     forestFocusMinutes: s.forestFocusMinutes + focusMinutes,
@@ -520,16 +567,11 @@ export const claimDayReward = (
     return { state: s, reward: 0 };
   }
   const nextDay = s.claimedDays.length + 1;
-  const focusAge = s.lastFocusDate
-    ? daysBetween(s.lastFocusDate, today)
-    : Infinity;
-  const streakIsCurrent =
-    focusAge === 0 || focusAge === 1;
   if (
     day < 1 ||
     day > DAY_REWARDS.length ||
     day !== nextDay ||
-    !streakIsCurrent ||
+    s.lastFocusDate !== today ||
     s.currentStreak < day ||
     s.claimedDays.includes(day)
   ) {
@@ -607,7 +649,9 @@ export const daysBetween = (from: string | null, to: string): number => {
 // (the next completed session would otherwise reset it to 1).
 export const canRepairStreak = (s: GameState, now: Date = new Date()): boolean => {
   if (s.currentStreak <= 0 || s.lastFocusDate === null) return false;
-  return daysBetween(s.lastFocusDate, todayKey(now)) === 2;
+  // If a pre-owned freeze already covers the missed day, repair would spend
+  // coins for no benefit: the next session will consume that freeze instead.
+  return daysBetween(s.lastFocusDate, todayKey(now)) === 2 && s.streakFreezes === 0;
 };
 
 // Paid streak repair: spend coins to mark yesterday as focused, so the next
@@ -822,7 +866,12 @@ export const buyStreakFreeze = (
   prev: GameState,
 ): { state: GameState; ok: boolean } => {
   const s = normalizeForToday(prev);
-  if (s.streakFreezes >= STREAK_FREEZE_MAX || s.coins < STREAK_FREEZE_COST) {
+  // A freeze is advance protection, not a cheaper retroactive repair.
+  if (
+    (s.currentStreak > 0 && activeStreak(s) === 0) ||
+    s.streakFreezes >= STREAK_FREEZE_MAX ||
+    s.coins < STREAK_FREEZE_COST
+  ) {
     return { state: s, ok: false };
   }
   return {

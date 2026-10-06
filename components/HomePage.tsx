@@ -9,6 +9,7 @@ import type { AccessoryId, MascotId } from '../lib/gameState';
 
 interface HomePageProps {
   streak: number;
+  repairableStreak: number;
   coins: number;
   bestStreak: number;
   completedToday: number;
@@ -16,6 +17,7 @@ interface HomePageProps {
   mascot: MascotId;
   accessory: AccessoryId | null;
   streakFreezes: number;
+  canBuyFreeze: boolean;
   trees: number;
   treeProgress: number;
   treePlantedDay: number[];
@@ -32,6 +34,7 @@ interface HomePageProps {
 
 const HomePage = ({
   streak,
+  repairableStreak,
   coins,
   bestStreak,
   completedToday,
@@ -39,6 +42,7 @@ const HomePage = ({
   mascot,
   accessory,
   streakFreezes,
+  canBuyFreeze,
   trees,
   treeProgress,
   treePlantedDay,
@@ -77,14 +81,14 @@ const HomePage = ({
 
       {repairCost !== null && (
         <StreakRepairCard
-          streak={streak}
+          streak={repairableStreak}
           coins={coins}
           cost={repairCost}
           onRepair={onRepair}
         />
       )}
 
-      <StreakFreezeCard coins={coins} freezes={streakFreezes} onBuy={onBuyFreeze} />
+      <StreakFreezeCard coins={coins} freezes={streakFreezes} canBuy={canBuyFreeze} onBuy={onBuyFreeze} />
 
       <ForestCard
         coins={coins}

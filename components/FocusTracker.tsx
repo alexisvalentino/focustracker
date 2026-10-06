@@ -17,6 +17,7 @@ import {
   RECORD_BONUS,
   STREAK_REPAIR_COST,
   TREE_COST,
+  activeStreak,
   awardFailConsolation,
   buyAccessory,
   buyMascot,
@@ -26,6 +27,8 @@ import {
   claimDailyBonus,
   claimDayReward,
   claimDailyGoal,
+  clearSessionRunning,
+  consumeInterruptedSession,
   dailyBonusValue,
   daysBetween,
   donateToForest,
@@ -33,6 +36,7 @@ import {
   equipMascot,
   equipTheme,
   isWeekend,
+  markSessionRunning,
   recordSession,
   repairStreak,
   todayKey,
@@ -42,7 +46,7 @@ import {
 } from '../lib/gameState';
 
 type Phase = 'idle' | 'running' | 'failed' | 'done';
-type FailReason = 'touch' | 'left' | 'moved';
+type FailReason = 'touch' | 'left' | 'moved' | 'interrupted';
 
 const TAB_KEYS: TabKey[] = ['home', 'focus', 'rewards'];
 
@@ -251,6 +255,14 @@ const FocusTracker = () => {
   }, [phase]);
 
   useEffect(() => {
+    if (consumeInterruptedSession()) {
+      phaseRef.current = 'failed';
+      setFailReason('interrupted');
+      setPhase('failed');
+    }
+  }, []);
+
+  useEffect(() => {
     if (game.dailyProgressDate === todayKey()) setBubblePopped(false);
   }, [game.dailyProgressDate]);
 
@@ -278,6 +290,7 @@ const FocusTracker = () => {
       // Close the session synchronously. Pointer, touch, and native-touch can
       // arrive before React commits the failed phase.
       phaseRef.current = 'failed';
+      clearSessionRunning();
       // Temptation tax: even a failed session pays a small consolation based on
       // how long you resisted, but far less than completing it would have.
       const seconds = Math.floor(sessionMs / 1000);
@@ -299,6 +312,9 @@ const FocusTracker = () => {
   // --- Touch detection (works on Android, iOS, and browser) ---
   useEffect(() => {
     const onTouch = () => {
+      // The START tap fires before the session begins. Do not let it suppress
+      // an actual touch immediately after START via the deduplication window.
+      if (phaseRef.current !== 'running') return;
       const now = Date.now();
       // The same physical touch can fire pointerdown, touchstart, and the
       // native event within a few ms — only count it once.
@@ -390,6 +406,9 @@ const FocusTracker = () => {
   useEffect(() => {
     if (phase !== 'running') return;
     const id = window.setInterval(() => {
+      // A failure closes phaseRef synchronously; a queued tick must not award
+      // a completed session before React cleans up this interval.
+      if (phaseRef.current !== 'running') return;
       const t = Math.floor(
         (performance.now() - sessionStartMonotonicRef.current) / 1000,
       );
@@ -399,6 +418,7 @@ const FocusTracker = () => {
         if (!successHandledRef.current) {
           successHandledRef.current = true;
           phaseRef.current = 'done';
+          clearSessionRunning();
           playSuccessSound();
           hapticSuccess();
           const { state, result } = recordSession(gameRef.current, duration);
@@ -435,8 +455,10 @@ const FocusTracker = () => {
   };
 
   const start = () => {
+    markSessionRunning();
     setElapsed(0);
     setFailResult(null);
+    lastTouchHandledAtRef.current = 0;
     sessionStartMonotonicRef.current = performance.now();
     phaseRef.current = 'running';
     setPhase('running');
@@ -611,7 +633,8 @@ const FocusTracker = () => {
           }`}
         >
           <HomePage
-            streak={game.currentStreak}
+            streak={activeStreak(game)}
+            repairableStreak={game.currentStreak}
             coins={game.coins}
             bestStreak={game.bestStreak}
             completedToday={game.completedToday}
@@ -619,6 +642,7 @@ const FocusTracker = () => {
             mascot={game.activeMascot}
             accessory={game.equippedAccessory}
             streakFreezes={game.streakFreezes}
+            canBuyFreeze={game.currentStreak === 0 || activeStreak(game) > 0}
             trees={game.trees}
             treeProgress={game.treeProgress}
             treePlantedDay={game.treePlantedDay}
@@ -648,7 +672,7 @@ const FocusTracker = () => {
                 <div className="text-center">
                   <div className="mb-5 flex items-center justify-center gap-2">
                     <span className="rounded-full border border-amber-200 bg-white/80 px-3 py-1 text-xs font-bold text-amber-500 shadow-sm">
-                      🔥 {game.currentStreak} day{game.currentStreak === 1 ? '' : 's'}
+                      🔥 {activeStreak(game)} day{activeStreak(game) === 1 ? '' : 's'}
                     </span>
                     <span className="rounded-full border border-sky-100 bg-white/80 px-3 py-1 text-xs font-bold text-brand-600 shadow-sm">
                       🪙 {game.coins}
@@ -857,6 +881,8 @@ const FocusTracker = () => {
                       ? 'You touched your phone.'
                       : failReason === 'moved'
                         ? 'You moved the phone.'
+                        : failReason === 'interrupted'
+                          ? 'Your session was interrupted.'
                         : 'You left the app.'}
                   </p>
                   <p className="mt-2 text-sm text-slate-500">
@@ -864,6 +890,8 @@ const FocusTracker = () => {
                       ? 'Back to zero. Touching means starting over.'
                       : failReason === 'moved'
                         ? 'Back to zero. Moving means starting over.'
+                        : failReason === 'interrupted'
+                          ? 'Back to zero. A reloaded session cannot be verified.'
                         : 'Back to zero. Leaving means starting over.'}
                   </p>
                   {failResult && failResult.reward > 0 && (
@@ -900,7 +928,7 @@ const FocusTracker = () => {
                     You passed. Not geh today. 🏆
                   </p>
                   <p className="mt-2 text-sm font-bold text-slate-600">
-                    +{lastCoinsEarned} 🪙 · {game.currentStreak}-day streak 🔥
+                    +{lastCoinsEarned} 🪙 · {activeStreak(game)}-day streak 🔥
                   </p>
                   {lastFreezeUsed > 0 && (
                     <p className="mt-1 text-xs font-black text-sky-600">
@@ -941,7 +969,7 @@ const FocusTracker = () => {
 
           <RewardsPage
             coins={game.coins}
-            currentStreak={game.currentStreak}
+            currentStreak={activeStreak(game)}
             completedToday={game.completedToday}
             dailyGoalReached={dailyGoalReached}
             dailyGoalClaimed={game.dailyGoalClaimed}

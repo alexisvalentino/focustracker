@@ -4,12 +4,13 @@ import { STREAK_FREEZE_COST, STREAK_FREEZE_MAX } from '../lib/gameState';
 interface StreakFreezeCardProps {
   coins: number;
   freezes: number;
+  canBuy: boolean;
   onBuy: () => void;
 }
 
-const StreakFreezeCard = ({ coins, freezes, onBuy }: StreakFreezeCardProps) => {
+const StreakFreezeCard = ({ coins, freezes, canBuy: canBuyNow, onBuy }: StreakFreezeCardProps) => {
   const maxed = freezes >= STREAK_FREEZE_MAX;
-  const canBuy = !maxed && coins >= STREAK_FREEZE_COST;
+  const canBuy = canBuyNow && !maxed && coins >= STREAK_FREEZE_COST;
   return (
     <div className="mt-3 w-full rounded-2xl border border-slate-200/70 bg-white p-4 text-left shadow-sm">
       <div className="flex items-center justify-between gap-2">
@@ -39,7 +40,7 @@ const StreakFreezeCard = ({ coins, freezes, onBuy }: StreakFreezeCardProps) => {
               : 'cursor-not-allowed bg-slate-100 text-slate-400'
         }`}
       >
-        {maxed ? 'Freeze stock full · used automatically' : `Buy 1 freeze · ${STREAK_FREEZE_COST} 🪙`}
+        {maxed ? 'Freeze stock full · used automatically' : !canBuyNow ? 'Missed a day · repair your streak first' : `Buy 1 freeze · ${STREAK_FREEZE_COST} 🪙`}
       </button>
     </div>
   );
